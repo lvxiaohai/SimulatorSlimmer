@@ -1,0 +1,410 @@
+import SimulatorSlimmerCore
+import SwiftUI
+
+struct StorageView: View {
+  let snapshot: DeviceSnapshot
+  @Bindable var model: AppModel
+  @State private var showingDetails = false
+
+  private var plan: StoragePlan? { snapshot.latestStoragePlan }
+
+  private var selectedCategories: [StorageCategorySummary] {
+    plan?.categories.filter { model.selectedStorageCategoryIDs.contains($0.id) } ?? []
+  }
+
+  private var selectedBytes: Int64 {
+    selectedCategories.reduce(0) { $0 + $1.bytes }
+  }
+
+  private var isBusy: Bool {
+    model.isDeviceBusy(snapshot.device.id)
+  }
+
+  private var requiresShutdown: Bool {
+    snapshot.device.state != .shutdown
+  }
+
+  private var canRequestShutdown: Bool {
+    snapshot.device.state == .booted && !isBusy
+  }
+
+  private var canRunStorageOperations: Bool {
+    !requiresShutdown && !isBusy
+  }
+
+  var body: some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 20) {
+        operationState
+
+        if requiresShutdown {
+          shutdownRequiredNotice
+        }
+
+        if let plan {
+          storageOverview(plan)
+          categoriesPanel(plan)
+        } else {
+          emptyScanState
+        }
+      }
+      .padding(.horizontal, InstrumentTheme.pagePadding)
+      .padding(.bottom, InstrumentTheme.pagePadding)
+    }
+    .accessibilityIdentifier("storage.page")
+    .sheet(isPresented: $showingDetails) {
+      if let plan {
+        StorageDetailsSheet(plan: plan)
+      }
+    }
+  }
+
+  private var shutdownRequiredNotice: some View {
+    NoticeStrip(
+      tone: .warning,
+      title: L10n.text("storage.shutdown-required.title"),
+      message: L10n.text("storage.shutdown-required.message"),
+      actionTitle: canRequestShutdown ? L10n.text("action.shutdown") : nil,
+      action: canRequestShutdown ? { model.runDeviceOperation(.shutdown) } : nil
+    )
+    .accessibilityIdentifier("storage.shutdown-required")
+  }
+
+  @ViewBuilder
+  private var operationState: some View {
+    if let operation = model.operations[snapshot.device.id] {
+      if operation.isRunning,
+        operation.operation.kind == .scanStorage || operation.operation.kind == .cleanStorage
+      {
+        OperationProgressPanel(
+          presentation: operation,
+          stop: model.requestStop
+        )
+      } else if let receipt = operation.receipt,
+        receipt.kind == .scanStorage || receipt.kind == .cleanStorage
+      {
+        ReceiptResultBanner(
+          receipt: receipt,
+          showReceipt: { model.showReceipt(receipt) }
+        )
+      } else if let message = operation.failureMessage,
+        operation.operation.kind == .scanStorage || operation.operation.kind == .cleanStorage
+      {
+        if canRunStorageOperations {
+          NoticeStrip(
+            tone: .error,
+            title: L10n.text("storage.failed.title"),
+            message: message,
+            actionTitle: L10n.text("action.rescan"),
+            action: model.scanStorage
+          )
+        } else {
+          NoticeStrip(
+            tone: .error,
+            title: L10n.text("storage.failed.title"),
+            message: message
+          )
+        }
+      }
+    }
+  }
+
+  private func storageOverview(_ plan: StoragePlan) -> some View {
+    HStack(spacing: 16) {
+      MetricCard(
+        eyebrow: "storage.total",
+        value: ValueFormatter.bytes(plan.totalBytes),
+        unitDetail: L10n.formatted(
+          "storage.scanned-at",
+          plan.generatedAt.formatted(date: .omitted, time: .shortened)
+        ),
+        symbol: "internaldrive",
+        tint: .blue
+      )
+
+      MetricCard(
+        eyebrow: "storage.cleanable",
+        value: ValueFormatter.bytes(plan.cleanableBytes),
+        unitDetail: L10n.formatted("storage.selected", ValueFormatter.bytes(selectedBytes)),
+        symbol: "sparkles",
+        tint: .mint,
+        progress: plan.totalBytes == 0
+          ? 0
+          : Double(plan.cleanableBytes) / Double(plan.totalBytes)
+      )
+    }
+  }
+
+  private func categoriesPanel(_ plan: StoragePlan) -> some View {
+    InstrumentCard {
+      VStack(alignment: .leading, spacing: 16) {
+        InstrumentSectionLabel(
+          title: "storage.categories.title",
+          detail: L10n.formatted(
+            "format.targets", selectedCategories.reduce(0) { $0 + $1.targetCount })
+        )
+
+        VStack(spacing: 0) {
+          ForEach(plan.categories.filter(\.canClean)) { category in
+            StorageCategoryRow(
+              category: category,
+              isSelected: model.selectedStorageCategoryIDs.contains(category.id),
+              isEnabled: canRunStorageOperations,
+              setSelected: {
+                model.toggleStorageCategory(category.id, selected: $0)
+              }
+            )
+            if category.id != plan.categories.filter(\.canClean).last?.id {
+              Divider()
+            }
+          }
+        }
+
+        let protected = plan.categories.filter { !$0.canClean }
+        if !protected.isEmpty {
+          Divider()
+          Text("storage.protected.title")
+            .font(.subheadline.weight(.semibold))
+          VStack(spacing: 0) {
+            ForEach(protected) { category in
+              ProtectedStorageRow(category: category)
+              if category.id != protected.last?.id { Divider() }
+            }
+          }
+        }
+
+        Divider()
+
+        HStack(spacing: 10) {
+          Label("storage.safety-note", systemImage: "checkmark.shield.fill")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer()
+          Button("action.view-details") {
+            showingDetails = true
+          }
+          .disabled(plan.items.isEmpty)
+          .minimumHitArea()
+
+          Button("action.rescan") {
+            model.scanStorage()
+          }
+          .disabled(!canRunStorageOperations)
+          .minimumHitArea()
+
+          Button {
+            model.requestStorageCleanup()
+          } label: {
+            Label(
+              L10n.formatted("action.clean-bytes", ValueFormatter.bytes(selectedBytes)),
+              systemImage: "sparkles"
+            )
+          }
+          .buttonStyle(PressablePrimaryButtonStyle())
+          .disabled(selectedCategories.isEmpty || !canRunStorageOperations)
+        }
+      }
+    }
+  }
+
+  private var emptyScanState: some View {
+    InstrumentCard {
+      VStack(spacing: 18) {
+        ZStack {
+          Circle()
+            .fill(Color.mint.opacity(0.1))
+          Image(systemName: "externaldrive.badge.magnifyingglass")
+            .font(.system(size: 28, weight: .medium))
+            .foregroundStyle(.mint)
+        }
+        .frame(width: 64, height: 64)
+        .accessibilityHidden(true)
+
+        VStack(spacing: 6) {
+          Text("storage.empty.title")
+            .font(.title3.weight(.semibold))
+          Text("storage.empty.message")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Button {
+          model.scanStorage()
+        } label: {
+          Label("action.scan-storage", systemImage: "magnifyingglass")
+        }
+        .buttonStyle(PressablePrimaryButtonStyle())
+        .disabled(!canRunStorageOperations)
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 36)
+    }
+  }
+}
+
+private struct StorageDetailsSheet: View {
+  let plan: StoragePlan
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 12) {
+        Image(systemName: "list.bullet.rectangle.portrait")
+          .font(.title2)
+          .foregroundStyle(.mint)
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("storage.details.title")
+            .font(.title3.weight(.semibold))
+          Text("storage.details.subtitle")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer()
+      }
+      .padding(16)
+      .background(.bar)
+
+      Divider()
+
+      List {
+        ForEach(plan.categories) { category in
+          let items = plan.items.filter { $0.categoryID == category.id }
+          if !items.isEmpty {
+            Section(category.name) {
+              ForEach(items) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                  Text(item.relativePath)
+                    .font(.callout.monospaced())
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                  Spacer(minLength: 16)
+                  if category.canClean {
+                    Text(ValueFormatter.bytes(item.bytes))
+                      .font(.callout.monospacedDigit())
+                      .foregroundStyle(.secondary)
+                  } else {
+                    Label("storage.details.protected-item", systemImage: "lock.fill")
+                      .font(.caption.weight(.medium))
+                      .foregroundStyle(.secondary)
+                  }
+                }
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
+              }
+            }
+          }
+        }
+      }
+      .listStyle(.inset)
+
+      Divider()
+
+      HStack {
+        Label("storage.details.privacy", systemImage: "hand.raised")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Spacer()
+        Button("action.close") { dismiss() }
+          .keyboardShortcut(.defaultAction)
+          .minimumHitArea()
+      }
+      .padding(16)
+    }
+    .frame(minWidth: 620, minHeight: 480)
+    .accessibilityIdentifier("storage-details.sheet")
+  }
+}
+
+private struct StorageCategoryRow: View {
+  let category: StorageCategorySummary
+  let isSelected: Bool
+  let isEnabled: Bool
+  let setSelected: @MainActor @Sendable (Bool) -> Void
+
+  var body: some View {
+    Toggle(
+      isOn: Binding(
+        get: { isSelected },
+        set: { newValue in setSelected(newValue) }
+      )
+    ) {
+      HStack(alignment: .center, spacing: 12) {
+        Image(systemName: symbol)
+          .symbolRenderingMode(.hierarchical)
+          .foregroundStyle(.mint)
+          .frame(width: 24)
+          .accessibilityHidden(true)
+        VStack(alignment: .leading, spacing: 3) {
+          Text(category.name)
+            .font(.subheadline.weight(.medium))
+          Text(category.summary)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Text(category.consequence)
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+        }
+        Spacer(minLength: 12)
+        VStack(alignment: .trailing, spacing: 3) {
+          Text(ValueFormatter.bytes(category.bytes))
+            .font(.subheadline.weight(.semibold).monospacedDigit())
+          Text(L10n.formatted("format.targets", category.targetCount))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .toggleStyle(.checkbox)
+    .disabled(!isEnabled)
+    .padding(.vertical, 10)
+    .frame(minHeight: 44)
+    .accessibilityHint(category.recovery)
+  }
+
+  private var symbol: String {
+    switch category.id.lowercased() {
+    case let id where id.contains("log"): "doc.text"
+    case let id where id.contains("tmp") || id.contains("temp"): "hourglass.bottomhalf.filled"
+    default: "shippingbox"
+    }
+  }
+}
+
+private struct ProtectedStorageRow: View {
+  let category: StorageCategorySummary
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Image(systemName: "lock.shield.fill")
+        .symbolRenderingMode(.hierarchical)
+        .foregroundStyle(.secondary)
+        .frame(width: 24)
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 3) {
+        Text(category.name)
+          .font(.subheadline.weight(.medium))
+        Text(category.summary)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+      VStack(alignment: .trailing, spacing: 3) {
+        Text(ValueFormatter.bytes(category.bytes))
+          .font(.subheadline.monospacedDigit())
+          .foregroundStyle(.secondary)
+        if category.targetCount > 0 {
+          Text(L10n.formatted("format.targets", category.targetCount))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+      }
+    }
+    .padding(.vertical, 10)
+    .frame(minHeight: 44)
+    .accessibilityElement(children: .combine)
+    .accessibilityHint("storage.protected.hint")
+  }
+}
