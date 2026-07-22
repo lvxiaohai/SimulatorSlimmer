@@ -60,6 +60,7 @@ struct ServiceCatalogBehaviorTests {
     let document = """
       {
         "schemaVersion": 1,
+        "supportedRuntimeVersions": ["26.5"],
         "categories": [
           {"id":"system","name":"系统","summary":"系统能力","symbol":"gear"}
         ],
@@ -81,6 +82,56 @@ struct ServiceCatalogBehaviorTests {
     #expect(throws: SimulatorWorkspaceError.self) {
       try ServiceCatalog.decode(Data(document.utf8))
     }
+  }
+
+  @Test("Runtime 中不存在的目录服务只读显示且不进入计划")
+  func absentServicesAreNeverChanged() {
+    let catalog = makeBehaviorCatalog()
+    let deviceID = SimulatorID(rawValue: "11111111-2222-4333-8444-555555555555")
+    let presentLabels: Set<String> = ["com.test.low", "com.test.protected"]
+
+    let plan = catalog.plan(
+      deviceID: deviceID,
+      runtimeVersion: "26.5",
+      profile: .efficient,
+      currentDisabledLabels: [],
+      presentLabels: presentLabels
+    )
+    let states = catalog.serviceStates(
+      runtimeVersion: "26.5",
+      disabledLabels: [],
+      presentLabels: presentLabels
+    )
+
+    #expect(plan.changes.map(\.label) == ["com.test.low"])
+    #expect(states.first { $0.service.label == "com.test.low" }?.isPresent == true)
+    #expect(states.first { $0.service.label == "com.test.moderate" }?.isPresent == false)
+    #expect(states.first { $0.service.label == "com.test.high" }?.isPresent == false)
+  }
+
+  @Test("无法解析的 Runtime 版本默认拒绝全部服务规则")
+  func malformedRuntimeVersionDefaultsToNoServices() {
+    let catalog = makeBehaviorCatalog()
+    let plan = catalog.plan(
+      deviceID: SimulatorID(rawValue: "11111111-2222-4333-8444-555555555555"),
+      runtimeVersion: "unknown-runtime",
+      profile: .efficient,
+      currentDisabledLabels: []
+    )
+
+    #expect(catalog.applicableServices(runtimeVersion: "unknown-runtime").isEmpty)
+    #expect(plan.changes.isEmpty)
+  }
+
+  @Test("只允许经过实机验证的精确 Runtime 版本")
+  func onlyExplicitlyVerifiedRuntimeVersionsAreMutable() {
+    let catalog = makeBehaviorCatalog()
+
+    #expect(!catalog.applicableServices(runtimeVersion: "26.3.1").isEmpty)
+    #expect(!catalog.applicableServices(runtimeVersion: "26.5").isEmpty)
+    #expect(catalog.applicableServices(runtimeVersion: "26.3").isEmpty)
+    #expect(catalog.applicableServices(runtimeVersion: "26.4").isEmpty)
+    #expect(catalog.applicableServices(runtimeVersion: "26.6").isEmpty)
   }
 }
 

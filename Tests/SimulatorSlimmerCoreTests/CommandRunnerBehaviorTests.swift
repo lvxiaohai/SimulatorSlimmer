@@ -85,4 +85,23 @@ struct CommandRunnerBehaviorTests {
       )
     }
   }
+
+  @Test("长时间输出会在进程退出前触发上限并被终止")
+  func streamingOutputLimitTerminatesProducerEarly() async {
+    let runner = FoundationCommandRunner()
+    let startedAt = ContinuousClock.now
+
+    await #expect(throws: SimulatorWorkspaceError.self) {
+      _ = try await runner.run(
+        Command(
+          executable: URL(fileURLWithPath: "/bin/sh"),
+          arguments: ["-c", "while :; do printf 12345678901234567890; done"],
+          timeout: .seconds(5),
+          outputLimit: 1_024
+        )
+      )
+    }
+
+    #expect(startedAt.duration(to: .now) < .seconds(2))
+  }
 }

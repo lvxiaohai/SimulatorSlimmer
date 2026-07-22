@@ -4,6 +4,10 @@ protocol SimulatorControlling: Sendable {
   func inventory() async throws -> SimulatorInventory
   func validatedDevice(_ id: SimulatorID) async throws -> SimulatorDevice
   func disabledLabels(for id: SimulatorID) async throws -> Set<String>
+  func presentServiceLabels(
+    _ labels: Set<String>,
+    for id: SimulatorID
+  ) async throws -> Set<String>
   func setService(
     _ label: String,
     transition: ServiceTransition,
@@ -59,7 +63,10 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
       throw SimulatorWorkspaceError.malformedOutput(error.localizedDescription)
     }
 
-    let runtimes = runtimeDocument.runtimes.map {
+    let iOSRuntimeRecords = runtimeDocument.runtimes.filter {
+      $0.identifier.hasPrefix("com.apple.CoreSimulator.SimRuntime.iOS-")
+    }
+    let runtimes = iOSRuntimeRecords.map {
       SimulatorRuntime(
         id: $0.identifier,
         name: $0.name,
@@ -71,18 +78,22 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
     let runtimeNames = Dictionary(uniqueKeysWithValues: runtimes.map { ($0.id, $0.name) })
     let runtimesByID = Dictionary(uniqueKeysWithValues: runtimes.map { ($0.id, $0) })
 
-    let devices = deviceDocument.devices.flatMap { runtimeIdentifier, devices in
-      devices.map { device in
-        SimulatorDevice(
+    let devices: [SimulatorDevice] = deviceDocument.devices.flatMap {
+      entry -> [SimulatorDevice] in
+      let runtimeIdentifier = entry.key
+      guard runtimesByID[runtimeIdentifier] != nil else { return [] }
+      return entry.value.map { device in
+        let isAvailable =
+          device.isAvailable && (runtimesByID[runtimeIdentifier]?.isAvailable ?? false)
+        return SimulatorDevice(
           id: SimulatorID(rawValue: device.udid),
           name: device.name,
           runtimeIdentifier: runtimeIdentifier,
           runtimeName: runtimeNames[runtimeIdentifier]
             ?? Self.readableRuntimeName(runtimeIdentifier),
           deviceTypeIdentifier: device.deviceTypeIdentifier,
-          state: Self.mapState(device.state, isAvailable: device.isAvailable),
-          isAvailable: device.isAvailable
-            && (runtimesByID[runtimeIdentifier]?.isAvailable ?? false),
+          state: Self.mapState(device.state, isAvailable: isAvailable),
+          isAvailable: isAvailable,
           availabilityError: device.availabilityError,
           dataPath: device.dataPath.map(URL.init(fileURLWithPath:)),
           logPath: device.logPath.map(URL.init(fileURLWithPath:)),
@@ -116,9 +127,8 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
   }
 
   func disabledLabels(for id: SimulatorID) async throws -> Set<String> {
-    let device = try await validatedDevice(id)
-    guard device.state == .booted else {
-      throw SimulatorWorkspaceError.invalidOperation("读取服务状态前需要先启动模拟器")
+    guard Self.isValidUDID(id.rawValue) else {
+      throw SimulatorWorkspaceError.deviceNotFound(id)
     }
 
     let output = try await runner.run(
@@ -131,6 +141,60 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
       )
     )
     return Self.parseDisabledLabels(output.standardOutput)
+  }
+
+  func presentServiceLabels(
+    _ labels: Set<String>,
+    for id: SimulatorID
+  ) async throws -> Set<String> {
+    guard Self.isValidUDID(id.rawValue) else {
+      throw SimulatorWorkspaceError.deviceNotFound(id)
+    }
+    for label in labels where !Self.isValidLaunchdLabel(label) {
+      throw SimulatorWorkspaceError.invalidOperation("无效的 launchd 服务标签")
+    }
+
+    let orderedLabels = labels.sorted()
+    var present = Set<String>()
+    let batchSize = 8
+    for offset in stride(from: 0, to: orderedLabels.count, by: batchSize) {
+      try Task.checkCancellation()
+      let upperBound = min(offset + batchSize, orderedLabels.count)
+      let batch = orderedLabels[offset..<upperBound]
+      let results = try await withThrowingTaskGroup(of: ServicePresenceResult.self) { group in
+        for label in batch {
+          group.addTask {
+            do {
+              _ = try await runner.run(
+                Command(
+                  executable: xcrunURL,
+                  arguments: [
+                    "simctl", "spawn", id.rawValue,
+                    "launchctl", "print", "system/\(label)",
+                  ],
+                  timeout: .seconds(10),
+                  outputLimit: 2 * 1_024 * 1_024
+                )
+              )
+              return ServicePresenceResult(label: label, isPresent: true)
+            } catch SimulatorWorkspaceError.commandFailed(_, let code, let message)
+              where code == 113
+              || message.localizedCaseInsensitiveContains("could not find service")
+            {
+              return ServicePresenceResult(label: label, isPresent: false)
+            }
+          }
+        }
+
+        var batchResults: [ServicePresenceResult] = []
+        for try await result in group {
+          batchResults.append(result)
+        }
+        return batchResults
+      }
+      present.formUnion(results.filter(\.isPresent).map(\.label))
+    }
+    return present
   }
 
   func setService(
@@ -213,12 +277,7 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
 
   func clone(_ id: SimulatorID, name: String) async throws -> SimulatorID {
     _ = try await validatedDevice(id)
-    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmedName.isEmpty, trimmedName.count <= 128,
-      !trimmedName.contains(where: { $0.isNewline })
-    else {
-      throw SimulatorWorkspaceError.invalidOperation("克隆名称不能为空且不能超过 128 个字符")
-    }
+    let trimmedName = try Self.validatedCloneName(name)
 
     let output = try await runner.run(
       Command(
@@ -278,6 +337,18 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
     }
   }
 
+  static func validatedCloneName(_ name: String) throws -> String {
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedName.isEmpty, trimmedName.count <= 128,
+      !trimmedName.contains(where: { $0.isNewline })
+    else {
+      throw SimulatorWorkspaceError.invalidOperation(
+        "克隆名称不能为空、不能超过 128 个字符，且不能包含换行符"
+      )
+    }
+    return trimmedName
+  }
+
   private static func mapState(_ state: String, isAvailable: Bool) -> SimulatorState {
     guard isAvailable else { return .unavailable }
     switch state.lowercased() {
@@ -304,6 +375,11 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
   }
 }
 
+private struct ServicePresenceResult: Sendable {
+  let label: String
+  let isPresent: Bool
+}
+
 private struct RuntimeDocument: Decodable {
   let runtimes: [RuntimeRecord]
 }
@@ -314,6 +390,7 @@ private struct RuntimeRecord: Decodable {
   let version: String
   let buildversion: String?
   let isAvailable: Bool
+  let platformIdentifier: String?
 }
 
 private struct DeviceDocument: Decodable {

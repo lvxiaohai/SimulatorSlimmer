@@ -18,7 +18,7 @@
       "name": "iOS 26.3",
       "platformIdentifier": "com.apple.platform.iphonesimulator",
       "runtimeRoot": "/Library/Developer/CoreSimulator/Volumes/iOS_23D900/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.3.simruntime/Contents/Resources/RuntimeRoot",
-      "version": "26.3"
+      "version": "26.3.1"
     }
   ]
 }

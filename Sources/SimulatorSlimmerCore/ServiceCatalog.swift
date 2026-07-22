@@ -2,8 +2,22 @@ import Foundation
 
 struct ServiceCatalog: Sendable {
   let schemaVersion: Int
+  let supportedRuntimeVersions: Set<String>
   let categories: [ServiceCategory]
   let services: [ManagedService]
+
+  init(
+    schemaVersion: Int,
+    supportedRuntimeVersions: Set<String> = SimulatorOptimizationPolicy
+      .supportedRuntimeVersions,
+    categories: [ServiceCategory],
+    services: [ManagedService]
+  ) {
+    self.schemaVersion = schemaVersion
+    self.supportedRuntimeVersions = supportedRuntimeVersions
+    self.categories = categories
+    self.services = services
+  }
 
   static func bundled() throws -> ServiceCatalog {
     guard let url = Bundle.module.url(forResource: "ServiceCatalog", withExtension: "json") else {
@@ -26,6 +40,9 @@ struct ServiceCatalog: Sendable {
       throw SimulatorWorkspaceError.malformedOutput(
         "不支持服务目录版本 \(document.schemaVersion)"
       )
+    }
+    guard !document.supportedRuntimeVersions.isEmpty else {
+      throw SimulatorWorkspaceError.malformedOutput("服务目录缺少已验证的系统运行时版本")
     }
 
     let categoryIDs = document.categories.map(\.id)
@@ -64,13 +81,15 @@ struct ServiceCatalog: Sendable {
 
     return ServiceCatalog(
       schemaVersion: document.schemaVersion,
+      supportedRuntimeVersions: Set(document.supportedRuntimeVersions),
       categories: document.categories,
       services: document.services
     )
   }
 
   func applicableServices(runtimeVersion: String) -> [ManagedService] {
-    guard let major = Self.runtimeMajor(runtimeVersion) else { return services }
+    guard supportedRuntimeVersions.contains(runtimeVersion) else { return [] }
+    guard let major = Self.runtimeMajor(runtimeVersion) else { return [] }
     return services.filter { service in
       if let minimum = service.minimumRuntimeMajor, major < minimum { return false }
       if let maximum = service.maximumRuntimeMajor, major > maximum { return false }
@@ -80,10 +99,15 @@ struct ServiceCatalog: Sendable {
 
   func serviceStates(
     runtimeVersion: String,
-    disabledLabels: Set<String>
+    disabledLabels: Set<String>,
+    presentLabels: Set<String>? = nil
   ) -> [ServiceState] {
     applicableServices(runtimeVersion: runtimeVersion).map {
-      ServiceState(service: $0, isDisabled: disabledLabels.contains($0.label))
+      ServiceState(
+        service: $0,
+        isDisabled: disabledLabels.contains($0.label),
+        isPresent: presentLabels?.contains($0.label) ?? true
+      )
     }
   }
 
@@ -92,9 +116,11 @@ struct ServiceCatalog: Sendable {
     runtimeVersion: String,
     profile: OptimizationProfile,
     currentDisabledLabels: Set<String>,
-    customDisabledLabels: Set<String> = []
+    customDisabledLabels: Set<String> = [],
+    presentLabels: Set<String>? = nil
   ) -> OptimizationPlan {
-    let applicable = applicableServices(runtimeVersion: runtimeVersion)
+    let allApplicable = applicableServices(runtimeVersion: runtimeVersion)
+    let applicable = allApplicable.filter { presentLabels?.contains($0.label) ?? true }
     let servicesByLabel = Dictionary(uniqueKeysWithValues: applicable.map { ($0.label, $0) })
     let protected = applicable.filter { $0.alwaysEnabled || $0.risk == .protected }
     let mutable = applicable.filter { !$0.alwaysEnabled && $0.risk != .protected }
@@ -129,7 +155,9 @@ struct ServiceCatalog: Sendable {
       profile: profile,
       changes: changes,
       protectedLabels: protected.map(\.label).sorted(),
-      unknownDisabledLabels: currentDisabledLabels.subtracting(allCatalogLabels).sorted()
+      unknownDisabledLabels: currentDisabledLabels.subtracting(allCatalogLabels).sorted(),
+      desiredDisabledLabels: desired,
+      managedLabels: Set(applicable.map(\.label))
     )
   }
 
@@ -142,7 +170,10 @@ struct ServiceCatalog: Sendable {
       serviceName: service.name,
       categoryID: service.categoryID,
       risk: service.risk,
-      transition: transition
+      transition: transition,
+      impact: service.impact,
+      currentDisabled: transition == .enable,
+      targetDisabled: transition == .disable
     )
   }
 
@@ -153,6 +184,7 @@ struct ServiceCatalog: Sendable {
 
 private struct ServiceCatalogDocument: Decodable {
   let schemaVersion: Int
+  let supportedRuntimeVersions: [String]
   let categories: [ServiceCategory]
   let services: [ManagedService]
 }

@@ -69,7 +69,7 @@ actor DiagnosticLogStore {
           event: event,
           operationID: operationID?.rawValue.uuidString.lowercased(),
           device: deviceID.map { String($0.rawValue.prefix(8)) },
-          detail: detail
+          detail: detail.map(Self.redactPaths)
         )
       )
       data.append(0x0A)
@@ -93,10 +93,97 @@ actor DiagnosticLogStore {
     var result = Data()
     for url in [archivedLogURL, currentLogURL] {
       guard let data = try? Data(contentsOf: url) else { continue }
-      result.append(data)
+      result.append(Self.redactedLogData(data))
       if result.last != 0x0A { result.append(0x0A) }
     }
     return result
+  }
+
+  private static func redactedLogData(_ data: Data) -> Data {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+
+    var result = Data()
+    for line in data.split(separator: 0x0A) where !line.isEmpty {
+      guard let record = try? decoder.decode(DiagnosticLogRecord.self, from: Data(line)) else {
+        // 无法确认结构的旧日志宁可不导出，也不冒险泄露绝对路径。
+        continue
+      }
+      let redacted = DiagnosticLogRecord(
+        date: record.date,
+        level: record.level,
+        event: record.event,
+        operationID: record.operationID,
+        device: record.device,
+        detail: record.detail.map(redactPaths)
+      )
+      guard var encoded = try? encoder.encode(redacted) else { continue }
+      encoded.append(0x0A)
+      result.append(encoded)
+    }
+    return result
+  }
+
+  fileprivate static func redactPaths(_ value: String) -> String {
+    var redacted = value
+    let pattern = #"(?<![\p{L}\p{N}._~/-])/(?!/)[^\s，；;：:]+"#
+    if let expression = try? NSRegularExpression(pattern: pattern) {
+      let range = NSRange(redacted.startIndex..<redacted.endIndex, in: redacted)
+      redacted = expression.stringByReplacingMatches(
+        in: redacted,
+        range: range,
+        withTemplate: "<本机路径>"
+      )
+    }
+
+    let roots = Set([
+      FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path,
+      FileManager.default.temporaryDirectory.standardizedFileURL.path,
+      NSHomeDirectory(),
+    ])
+    for root in roots.sorted(by: { $0.count > $1.count }) where root.count > 1 {
+      redacted = redacted.replacingOccurrences(of: root, with: "<本机路径>")
+    }
+    return redacted
+  }
+
+  fileprivate static func redactOpaqueJSON(_ rawJSON: String) -> String? {
+    guard let data = rawJSON.data(using: .utf8),
+      let object = try? JSONSerialization.jsonObject(with: data),
+      JSONSerialization.isValidJSONObject(object),
+      let redactedData = try? JSONSerialization.data(
+        withJSONObject: redactJSONValue(object),
+        options: [.sortedKeys, .withoutEscapingSlashes]
+      )
+    else { return nil }
+    return String(data: redactedData, encoding: .utf8)
+  }
+
+  private static func redactJSONValue(_ value: Any) -> Any {
+    if let string = value as? String {
+      return redactPaths(string)
+    }
+    if let array = value as? [Any] {
+      return array.map(redactJSONValue)
+    }
+    if let dictionary = value as? [String: Any] {
+      var result: [String: Any] = [:]
+      for (key, nestedValue) in dictionary {
+        let redactedKey = redactPaths(key)
+        var uniqueKey = redactedKey
+        var suffix = 2
+        while result[uniqueKey] != nil {
+          uniqueKey = "\(redactedKey)#\(suffix)"
+          suffix += 1
+        }
+        result[uniqueKey] = redactJSONValue(nestedValue)
+      }
+      return result
+    }
+    return value
   }
 
   private func rotateIfNeeded() throws {
@@ -127,14 +214,20 @@ private struct DiagnosticLogRecord: Codable, Sendable {
 actor DiagnosticsExporter {
   private let runner: any CommandRunning
   private let fileManager: FileManager
+  private let logStore: DiagnosticLogStore
+  private let appVersion: String
   private let dittoURL = URL(fileURLWithPath: "/usr/bin/ditto")
 
   init(
     runner: any CommandRunning = FoundationCommandRunner(),
-    fileManager: FileManager = .default
+    fileManager: FileManager = .default,
+    logStore: DiagnosticLogStore = .shared,
+    appVersion: String = DiagnosticsExporter.bundleVersion
   ) {
     self.runner = runner
     self.fileManager = fileManager
+    self.logStore = logStore
+    self.appVersion = appVersion
   }
 
   func export(
@@ -183,7 +276,7 @@ actor DiagnosticsExporter {
     let manifest = DiagnosticManifest(
       schemaVersion: 1,
       generatedAt: Date(),
-      appVersion: "1.0.0",
+      appVersion: appVersion,
       operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
       locale: Locale.current.identifier,
       deviceCount: inventory.devices.count,
@@ -197,11 +290,11 @@ actor DiagnosticsExporter {
       to: packageURL.appendingPathComponent("inventory.json"),
       options: .atomic
     )
-    try encoder.encode(receipts).write(
+    try encoder.encode(redactedReceipts(receipts)).write(
       to: receiptsURL.appendingPathComponent("operations.json"),
       options: .atomic
     )
-    let logData = await DiagnosticLogStore.shared.snapshot()
+    let logData = await logStore.snapshot()
     try logData.write(to: logsURL.appendingPathComponent("events.ndjson"), options: .atomic)
     try Data(Self.readme.utf8).write(
       to: packageURL.appendingPathComponent("README.txt"),
@@ -239,13 +332,13 @@ actor DiagnosticsExporter {
       devices: inventory.devices.map { device in
         SimulatorDevice(
           id: device.id,
-          name: device.name,
+          name: DiagnosticLogStore.redactPaths(device.name),
           runtimeIdentifier: device.runtimeIdentifier,
           runtimeName: device.runtimeName,
           deviceTypeIdentifier: device.deviceTypeIdentifier,
           state: device.state,
           isAvailable: device.isAvailable,
-          availabilityError: device.availabilityError,
+          availabilityError: device.availabilityError.map(DiagnosticLogStore.redactPaths),
           dataPath: nil,
           logPath: nil,
           dataSize: device.dataSize,
@@ -257,6 +350,74 @@ actor DiagnosticsExporter {
     )
   }
 
+  private func redactedReceipts(_ receipts: [OperationReceipt]) -> [OperationReceipt] {
+    receipts.map { receipt in
+      let redactedInput = receipt.input.map { input in
+        var redacted = input
+        redacted.customDisabledLabels = input.customDisabledLabels.map {
+          Set($0.map(DiagnosticLogStore.redactPaths))
+        }
+        redacted.cloneName = input.cloneName.map(DiagnosticLogStore.redactPaths)
+        return redacted
+      }
+      let redactedChanges = receipt.appliedChanges.map { applied in
+        AppliedChange(
+          id: applied.id,
+          change: applied.change,
+          succeeded: applied.succeeded,
+          errorMessage: applied.errorMessage.map(DiagnosticLogStore.redactPaths),
+          appliedAt: applied.appliedAt
+        )
+      }
+      let redactedPendingDeviceAction = receipt.pendingDeviceAction.map {
+        pendingDeviceAction in
+        PendingDeviceAction(
+          kind: pendingDeviceAction.kind,
+          cloneName: pendingDeviceAction.cloneName.map(DiagnosticLogStore.redactPaths),
+          startedAt: pendingDeviceAction.startedAt
+        )
+      }
+      let redactedOpaquePayload = receipt.opaquePayload.map { opaque in
+        OpaqueReceiptPayload(
+          reason: opaque.reason,
+          sourceFileName: opaque.sourceFileName,
+          rawJSON: opaque.rawJSON.flatMap(DiagnosticLogStore.redactOpaqueJSON),
+          errorMessage: DiagnosticLogStore.redactPaths(opaque.errorMessage)
+        )
+      }
+      return OperationReceipt(
+        id: receipt.id,
+        schemaVersion: receipt.schemaVersion,
+        kind: receipt.kind,
+        deviceID: receipt.deviceID,
+        deviceName: DiagnosticLogStore.redactPaths(receipt.deviceName),
+        status: receipt.status,
+        startedAt: receipt.startedAt,
+        finishedAt: receipt.finishedAt,
+        originalDeviceState: receipt.originalDeviceState,
+        finalDeviceState: receipt.finalDeviceState,
+        shouldRestoreOriginalDeviceState: receipt.shouldRestoreOriginalDeviceState,
+        input: redactedInput,
+        runtimeIdentifier: receipt.runtimeIdentifier,
+        runtimeVersion: receipt.runtimeVersion,
+        serviceCatalogVersion: receipt.serviceCatalogVersion,
+        baselineCapturedAt: receipt.baselineCapturedAt,
+        baselineDisabledLabels: receipt.baselineDisabledLabels,
+        pendingChange: receipt.pendingChange,
+        appliedChanges: redactedChanges,
+        memoryBefore: receipt.memoryBefore,
+        memoryAfter: receipt.memoryAfter,
+        reclaimedBytes: receipt.reclaimedBytes,
+        pendingStorageCleanupPath: receipt.pendingStorageCleanupPath,
+        completedStorageCleanupItems: receipt.completedStorageCleanupItems,
+        pendingDeviceAction: redactedPendingDeviceAction,
+        clonedDeviceID: receipt.clonedDeviceID,
+        messages: receipt.messages.map(DiagnosticLogStore.redactPaths),
+        opaquePayload: redactedOpaquePayload
+      )
+    }
+  }
+
   private static let readme = """
     Simulator Slimmer 本地诊断包
 
@@ -264,6 +425,17 @@ actor DiagnosticsExporter {
     Receipts/operations.json 包含操作回执和模拟器 UDID，分享前请自行确认接收方。
     Logs/events.ndjson 仅记录本应用的操作生命周期，不包含命令 stdout/stderr 全文。
     """
+
+  private static var bundleVersion: String {
+    let shortVersion =
+      Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+      ?? "开发构建"
+    guard
+      let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+      !build.isEmpty
+    else { return shortVersion }
+    return "\(shortVersion) (\(build))"
+  }
 }
 
 private struct DiagnosticManifest: Codable, Sendable {

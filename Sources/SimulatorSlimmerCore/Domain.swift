@@ -52,6 +52,27 @@ public struct SimulatorRuntime: Codable, Hashable, Sendable, Identifiable {
     self.build = build
     self.isAvailable = isAvailable
   }
+
+  public var optimizationSupport: OptimizationSupportStatus {
+    guard isAvailable else { return .unavailableRuntime }
+    guard id.hasPrefix("com.apple.CoreSimulator.SimRuntime.iOS-") else {
+      return .unsupportedRuntime
+    }
+    guard SimulatorOptimizationPolicy.supportedRuntimeVersions.contains(version) else {
+      return .unsupportedRuntime
+    }
+    return .supported
+  }
+}
+
+public enum OptimizationSupportStatus: String, Codable, Hashable, Sendable {
+  case supported
+  case unavailableRuntime
+  case unsupportedRuntime
+}
+
+public enum SimulatorOptimizationPolicy {
+  public static let supportedRuntimeVersions: Set<String> = ["26.3.1", "26.5"]
 }
 
 public struct SimulatorDevice: Codable, Hashable, Sendable, Identifiable {
@@ -234,19 +255,28 @@ public struct ServiceChange: Codable, Hashable, Sendable, Identifiable {
   public let categoryID: String
   public let risk: ServiceRisk
   public let transition: ServiceTransition
+  public let impact: String?
+  public let currentDisabled: Bool?
+  public let targetDisabled: Bool?
 
   public init(
     label: String,
     serviceName: String,
     categoryID: String,
     risk: ServiceRisk,
-    transition: ServiceTransition
+    transition: ServiceTransition,
+    impact: String? = nil,
+    currentDisabled: Bool? = nil,
+    targetDisabled: Bool? = nil
   ) {
     self.label = label
     self.serviceName = serviceName
     self.categoryID = categoryID
     self.risk = risk
     self.transition = transition
+    self.impact = impact
+    self.currentDisabled = currentDisabled
+    self.targetDisabled = targetDisabled
   }
 
   public var id: String { "\(transition.rawValue):\(label)" }
@@ -259,6 +289,8 @@ public struct OptimizationPlan: Codable, Sendable, Identifiable {
   public let changes: [ServiceChange]
   public let protectedLabels: [String]
   public let unknownDisabledLabels: [String]
+  public let desiredDisabledLabels: Set<String>
+  public let managedLabels: Set<String>
   public let generatedAt: Date
 
   public init(
@@ -268,6 +300,8 @@ public struct OptimizationPlan: Codable, Sendable, Identifiable {
     changes: [ServiceChange],
     protectedLabels: [String] = [],
     unknownDisabledLabels: [String] = [],
+    desiredDisabledLabels: Set<String> = [],
+    managedLabels: Set<String> = [],
     generatedAt: Date = Date()
   ) {
     self.id = id
@@ -276,6 +310,8 @@ public struct OptimizationPlan: Codable, Sendable, Identifiable {
     self.changes = changes
     self.protectedLabels = protectedLabels
     self.unknownDisabledLabels = unknownDisabledLabels
+    self.desiredDisabledLabels = desiredDisabledLabels
+    self.managedLabels = managedLabels
     self.generatedAt = generatedAt
   }
 }
@@ -373,6 +409,7 @@ public struct DeviceSnapshot: Sendable {
   public let plans: [OptimizationProfile: OptimizationPlan]
   public let latestStoragePlan: StoragePlan?
   public let memoryError: String?
+  public let optimizationSupport: OptimizationSupportStatus
 
   public init(
     device: SimulatorDevice,
@@ -381,7 +418,8 @@ public struct DeviceSnapshot: Sendable {
     categories: [ServiceCategory],
     plans: [OptimizationProfile: OptimizationPlan],
     latestStoragePlan: StoragePlan? = nil,
-    memoryError: String? = nil
+    memoryError: String? = nil,
+    optimizationSupport: OptimizationSupportStatus = .supported
   ) {
     self.device = device
     self.memory = memory
@@ -390,10 +428,12 @@ public struct DeviceSnapshot: Sendable {
     self.plans = plans
     self.latestStoragePlan = latestStoragePlan
     self.memoryError = memoryError
+    self.optimizationSupport = optimizationSupport
   }
 }
 
 public enum OperationKind: String, Codable, Sendable {
+  case preflight
   case optimize
   case verify
   case restore
@@ -578,6 +618,91 @@ public struct AppliedChange: Codable, Hashable, Sendable, Identifiable {
   }
 }
 
+public struct StorageCleanupEvidence: Codable, Hashable, Sendable, Identifiable {
+  public let relativePath: String
+  public let targetRelativePath: String
+  public let reclaimedBytes: Int64
+  public let completedAt: Date
+
+  public init(
+    relativePath: String,
+    targetRelativePath: String,
+    reclaimedBytes: Int64,
+    completedAt: Date = Date()
+  ) {
+    self.relativePath = relativePath
+    self.targetRelativePath = targetRelativePath
+    self.reclaimedBytes = reclaimedBytes
+    self.completedAt = completedAt
+  }
+
+  public var id: String { relativePath }
+}
+
+public struct OperationInput: Codable, Hashable, Sendable {
+  public var profile: OptimizationProfile?
+  public var customDisabledLabels: Set<String>?
+  public var sourceReceiptID: ReceiptID?
+  public var storagePlanID: UUID?
+  public var storageCategoryIDs: Set<String>?
+  public var preserveBootState: Bool?
+  public var cloneName: String?
+
+  public init(
+    profile: OptimizationProfile? = nil,
+    customDisabledLabels: Set<String>? = nil,
+    sourceReceiptID: ReceiptID? = nil,
+    storagePlanID: UUID? = nil,
+    storageCategoryIDs: Set<String>? = nil,
+    preserveBootState: Bool? = nil,
+    cloneName: String? = nil
+  ) {
+    self.profile = profile
+    self.customDisabledLabels = customDisabledLabels
+    self.sourceReceiptID = sourceReceiptID
+    self.storagePlanID = storagePlanID
+    self.storageCategoryIDs = storageCategoryIDs
+    self.preserveBootState = preserveBootState
+    self.cloneName = cloneName
+  }
+}
+
+public struct PendingDeviceAction: Codable, Hashable, Sendable {
+  public let kind: OperationKind
+  public let cloneName: String?
+  public let startedAt: Date
+
+  public init(kind: OperationKind, cloneName: String? = nil, startedAt: Date = Date()) {
+    self.kind = kind
+    self.cloneName = cloneName
+    self.startedAt = startedAt
+  }
+}
+
+public struct OpaqueReceiptPayload: Codable, Hashable, Sendable {
+  public enum Reason: String, Codable, Hashable, Sendable {
+    case unsupportedSchema
+    case corrupted
+  }
+
+  public let reason: Reason
+  public let sourceFileName: String
+  public let rawJSON: String?
+  public let errorMessage: String
+
+  public init(
+    reason: Reason,
+    sourceFileName: String,
+    rawJSON: String? = nil,
+    errorMessage: String
+  ) {
+    self.reason = reason
+    self.sourceFileName = sourceFileName
+    self.rawJSON = rawJSON
+    self.errorMessage = errorMessage
+  }
+}
+
 public struct OperationReceipt: Codable, Sendable, Identifiable {
   public let id: ReceiptID
   public let schemaVersion: Int
@@ -589,13 +714,24 @@ public struct OperationReceipt: Codable, Sendable, Identifiable {
   public var finishedAt: Date?
   public let originalDeviceState: SimulatorState
   public var finalDeviceState: SimulatorState?
+  public var shouldRestoreOriginalDeviceState: Bool?
+  public var input: OperationInput?
+  public var runtimeIdentifier: String?
+  public var runtimeVersion: String?
+  public var serviceCatalogVersion: Int?
+  public var baselineCapturedAt: Date?
   public var baselineDisabledLabels: Set<String>
+  public var pendingChange: ServiceChange?
   public var appliedChanges: [AppliedChange]
   public var memoryBefore: MemorySnapshot?
   public var memoryAfter: MemorySnapshot?
   public var reclaimedBytes: Int64?
+  public var pendingStorageCleanupPath: String?
+  public var completedStorageCleanupItems: [StorageCleanupEvidence]?
+  public var pendingDeviceAction: PendingDeviceAction?
   public var clonedDeviceID: SimulatorID?
   public var messages: [String]
+  public var opaquePayload: OpaqueReceiptPayload?
 
   public init(
     id: ReceiptID = ReceiptID(),
@@ -608,13 +744,24 @@ public struct OperationReceipt: Codable, Sendable, Identifiable {
     finishedAt: Date? = nil,
     originalDeviceState: SimulatorState,
     finalDeviceState: SimulatorState? = nil,
+    shouldRestoreOriginalDeviceState: Bool? = nil,
+    input: OperationInput? = nil,
+    runtimeIdentifier: String? = nil,
+    runtimeVersion: String? = nil,
+    serviceCatalogVersion: Int? = nil,
+    baselineCapturedAt: Date? = nil,
     baselineDisabledLabels: Set<String> = [],
+    pendingChange: ServiceChange? = nil,
     appliedChanges: [AppliedChange] = [],
     memoryBefore: MemorySnapshot? = nil,
     memoryAfter: MemorySnapshot? = nil,
     reclaimedBytes: Int64? = nil,
+    pendingStorageCleanupPath: String? = nil,
+    completedStorageCleanupItems: [StorageCleanupEvidence]? = nil,
+    pendingDeviceAction: PendingDeviceAction? = nil,
     clonedDeviceID: SimulatorID? = nil,
-    messages: [String] = []
+    messages: [String] = [],
+    opaquePayload: OpaqueReceiptPayload? = nil
   ) {
     self.id = id
     self.schemaVersion = schemaVersion
@@ -626,13 +773,24 @@ public struct OperationReceipt: Codable, Sendable, Identifiable {
     self.finishedAt = finishedAt
     self.originalDeviceState = originalDeviceState
     self.finalDeviceState = finalDeviceState
+    self.shouldRestoreOriginalDeviceState = shouldRestoreOriginalDeviceState
+    self.input = input
+    self.runtimeIdentifier = runtimeIdentifier
+    self.runtimeVersion = runtimeVersion
+    self.serviceCatalogVersion = serviceCatalogVersion
+    self.baselineCapturedAt = baselineCapturedAt
     self.baselineDisabledLabels = baselineDisabledLabels
+    self.pendingChange = pendingChange
     self.appliedChanges = appliedChanges
     self.memoryBefore = memoryBefore
     self.memoryAfter = memoryAfter
     self.reclaimedBytes = reclaimedBytes
+    self.pendingStorageCleanupPath = pendingStorageCleanupPath
+    self.completedStorageCleanupItems = completedStorageCleanupItems
+    self.pendingDeviceAction = pendingDeviceAction
     self.clonedDeviceID = clonedDeviceID
     self.messages = messages
+    self.opaquePayload = opaquePayload
   }
 }
 

@@ -10,6 +10,7 @@ struct ServiceCatalogContractTests {
     let catalog = try loadCatalog()
 
     #expect(catalog.schemaVersion == 1)
+    #expect(catalog.supportedRuntimeVersions == ["26.3.1", "26.5"])
     #expect(catalog.categories.count == 14)
     #expect(catalog.services.count == 105)
     #expect(catalog.categories.allSatisfy { containsHanCharacter($0.name) })
@@ -148,6 +149,7 @@ struct ServiceCatalogContractTests {
 
 private struct CatalogDocument: Decodable {
   let schemaVersion: Int
+  let supportedRuntimeVersions: Set<String>
   let categories: [ServiceCategory]
   let services: [ManagedService]
 }

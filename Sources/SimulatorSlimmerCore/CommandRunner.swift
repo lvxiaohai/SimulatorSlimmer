@@ -117,7 +117,13 @@ final class FoundationCommandRunner: CommandRunning, @unchecked Sendable {
         stopReason = .timedOut
         break
       }
-      Thread.sleep(forTimeInterval: 0.04)
+      if outputSize(at: standardOutputURL) > command.outputLimit
+        || outputSize(at: standardErrorURL) > command.outputLimit
+      {
+        stopReason = .outputLimitExceeded
+        break
+      }
+      Thread.sleep(forTimeInterval: 0.01)
     }
 
     if let stopReason {
@@ -127,6 +133,10 @@ final class FoundationCommandRunner: CommandRunning, @unchecked Sendable {
         throw CancellationError()
       case .timedOut:
         throw SimulatorWorkspaceError.commandTimedOut(command.displayName)
+      case .outputLimitExceeded:
+        throw SimulatorWorkspaceError.malformedOutput(
+          "命令 \(command.displayName) 的输出超过 \(command.outputLimit) 字节安全上限"
+        )
       }
     }
 
@@ -192,8 +202,15 @@ final class FoundationCommandRunner: CommandRunning, @unchecked Sendable {
     return String(decoding: data, as: UTF8.self)
   }
 
+  private static func outputSize(at url: URL) -> Int {
+    var info = stat()
+    guard lstat(url.path, &info) == 0 else { return 0 }
+    return max(0, Int(info.st_size))
+  }
+
   private enum StopReason {
     case cancelled
     case timedOut
+    case outputLimitExceeded
   }
 }
