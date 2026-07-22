@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Xcode 用户状态
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# 构建产物
+.build/
+DerivedData/
+dist/
+*.dmg
+*.zip
+
+# 本地配置与发布密钥
+.env
+.env.*
+!.env.example
+AuthKey_*.p8
