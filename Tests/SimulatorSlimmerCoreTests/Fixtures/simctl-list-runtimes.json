@@ -1,0 +1,24 @@
+{
+  "runtimes": [
+    {
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime",
+      "buildversion": "23F900",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+      "isAvailable": true,
+      "name": "iOS 26.5",
+      "platformIdentifier": "com.apple.platform.iphonesimulator",
+      "runtimeRoot": "/Library/Developer/CoreSimulator/Volumes/iOS_23F900/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.5.simruntime/Contents/Resources/RuntimeRoot",
+      "version": "26.5"
+    },
+    {
+      "bundlePath": "/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.3.simruntime",
+      "buildversion": "23D900",
+      "identifier": "com.apple.CoreSimulator.SimRuntime.iOS-26-3",
+      "isAvailable": true,
+      "name": "iOS 26.3",
+      "platformIdentifier": "com.apple.platform.iphonesimulator",
+      "runtimeRoot": "/Library/Developer/CoreSimulator/Volumes/iOS_23D900/Library/Developer/CoreSimulator/Profiles/Runtimes/iOS 26.3.simruntime/Contents/Resources/RuntimeRoot",
+      "version": "26.3"
+    }
+  ]
+}

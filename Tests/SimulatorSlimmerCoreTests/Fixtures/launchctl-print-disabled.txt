@@ -1,0 +1,8 @@
+disabled services = {
+    "com.apple.newsd" => true
+    "com.apple.weatherd" => disabled
+    "com.apple.chronod" => enabled
+    "com.apple.sharingd" => false
+    "com.apple.SpringBoard" => false
+    "com.example.unmanaged.fixture" => true
+}

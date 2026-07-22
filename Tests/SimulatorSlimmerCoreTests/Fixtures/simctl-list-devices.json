@@ -1,0 +1,34 @@
+{
+  "devices": {
+    "com.apple.CoreSimulator.SimRuntime.iOS-26-3": [
+      {
+        "availabilityError": null,
+        "dataPath": "/Users/fixture/Library/Developer/CoreSimulator/Devices/AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE/data",
+        "dataPathSize": 2147483648,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M4-8GB",
+        "isAvailable": true,
+        "lastBootedAt": "2026-07-20T08:10:12Z",
+        "logPath": "/Users/fixture/Library/Logs/CoreSimulator/AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+        "logPathSize": 8388608,
+        "name": "契约测试 iPad",
+        "state": "Shutdown",
+        "udid": "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
+      }
+    ],
+    "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
+      {
+        "availabilityError": null,
+        "dataPath": "/Users/fixture/Library/Developer/CoreSimulator/Devices/11111111-2222-4333-8444-555555555555/data",
+        "dataPathSize": 3221225472,
+        "deviceTypeIdentifier": "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+        "isAvailable": true,
+        "lastBootedAt": "2026-07-22T10:42:31.125Z",
+        "logPath": "/Users/fixture/Library/Logs/CoreSimulator/11111111-2222-4333-8444-555555555555",
+        "logPathSize": 16777216,
+        "name": "契约测试 iPhone",
+        "state": "Booted",
+        "udid": "11111111-2222-4333-8444-555555555555"
+      }
+    ]
+  }
+}
