@@ -61,7 +61,7 @@ final class FoundationCommandRunner: CommandRunning, @unchecked Sendable {
     fileManager: FileManager
   ) throws -> CommandOutput {
     let temporaryDirectory = fileManager.temporaryDirectory
-      .appendingPathComponent("SimulatorSlimmer-(UUID().uuidString)", isDirectory: true)
+      .appendingPathComponent("SimulatorSlimmer-\(UUID().uuidString)", isDirectory: true)
     let standardOutputURL = temporaryDirectory.appendingPathComponent("stdout")
     let standardErrorURL = temporaryDirectory.appendingPathComponent("stderr")
 

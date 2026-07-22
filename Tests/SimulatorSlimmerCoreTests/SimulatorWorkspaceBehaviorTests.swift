@@ -126,6 +126,91 @@ struct SimulatorWorkspaceBehaviorTests {
     #expect(await simulator.disabledServiceLabels() == [beta.label, gamma.label])
     #expect(events.last?.receipt?.status == .succeeded)
   }
+
+  @Test("相同采样条件会记录真实内存差值和比较说明")
+  func comparableMemorySnapshotsProduceDifference() async throws {
+    let service = makeWorkspaceService(id: "memory", label: "com.test.memory")
+    let simulator = WorkspaceSimulatorSpy(
+      device: makeWorkspaceDevice(
+        id: "44444444-5555-4666-8777-888888888888",
+        state: .booted
+      )
+    )
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(),
+      services: [service],
+      memoryInspector: WorkspaceMemorySequenceStub(
+        snapshots: [
+          MemorySnapshot(bytes: 512 * 1_024 * 1_024, processCount: 8),
+          MemorySnapshot(bytes: 320 * 1_024 * 1_024, processCount: 6),
+        ]
+      )
+    )
+
+    let events = try await collect(
+      await workspace.perform(
+        .optimize(
+          deviceID: await simulator.deviceID,
+          profile: .conservative,
+          customDisabledLabels: []
+        )
+      )
+    )
+
+    let receipt = try #require(events.last?.receipt)
+    let reclaimedBytes = try #require(receipt.reclaimedBytes)
+    #expect(reclaimedBytes == Int64(192 * 1_024 * 1_024))
+    #expect(receipt.messages.contains { $0.contains("内存对比条件") })
+  }
+
+  @Test("继续验证只读核对中断前已完成的服务变更")
+  func continuationVerificationDoesNotMutateServices() async throws {
+    let service = makeWorkspaceService(id: "verify", label: "com.test.verify")
+    let device = makeWorkspaceDevice(
+      id: "55555555-6666-4777-8888-999999999999",
+      state: .booted
+    )
+    let simulator = WorkspaceSimulatorSpy(
+      device: device,
+      disabledLabels: [service.label]
+    )
+    let sourceReceipt = OperationReceipt(
+      kind: .optimize,
+      deviceID: device.id,
+      deviceName: device.name,
+      status: .partial,
+      originalDeviceState: .booted,
+      appliedChanges: [
+        AppliedChange(
+          change: serviceChange(for: service, transition: .disable),
+          succeeded: true
+        )
+      ]
+    )
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(seed: [sourceReceipt]),
+      services: [service]
+    )
+
+    let preview = try await workspace.preview(
+      .verify(deviceID: device.id, receiptID: sourceReceipt.id)
+    )
+    #expect(preview.serviceChanges.map(\.label) == [service.label])
+
+    let events = try await collect(
+      await workspace.perform(
+        .verify(deviceID: device.id, receiptID: sourceReceipt.id)
+      )
+    )
+    let receipt = try #require(events.last?.receipt)
+    #expect(receipt.kind == .verify)
+    #expect(receipt.status == .succeeded)
+    #expect(receipt.messages.contains { $0.contains("全部验证一致") })
+    #expect(await simulator.serviceCommands().isEmpty)
+    #expect(await simulator.disabledServiceLabels() == [service.label])
+  }
 }
 
 private struct RecordedServiceCommand: Sendable {
@@ -290,6 +375,19 @@ private struct WorkspaceMemoryInspectorStub: MemoryInspecting {
   }
 }
 
+private actor WorkspaceMemorySequenceStub: MemoryInspecting {
+  private var snapshots: [MemorySnapshot]
+
+  init(snapshots: [MemorySnapshot]) {
+    self.snapshots = snapshots
+  }
+
+  func snapshot(for deviceID: SimulatorID) async throws -> MemorySnapshot {
+    guard !snapshots.isEmpty else { throw WorkspaceTestError.simulatedFailure }
+    return snapshots.removeFirst()
+  }
+}
+
 private actor WorkspaceStorageManagerStub: StorageManaging {
   func scan(device: SimulatorDevice) async throws -> StoragePlan {
     StoragePlan(deviceID: device.id, totalBytes: 0, cleanableBytes: 0, categories: [])
@@ -313,7 +411,8 @@ private enum WorkspaceTestError: LocalizedError {
 private func makeWorkspace(
   simulator: WorkspaceSimulatorSpy,
   receiptStore: WorkspaceReceiptStoreSpy,
-  services: [ManagedService]
+  services: [ManagedService],
+  memoryInspector: any MemoryInspecting = WorkspaceMemoryInspectorStub()
 ) -> SimulatorWorkspace {
   let category = ServiceCategory(
     id: "test",
@@ -323,7 +422,7 @@ private func makeWorkspace(
   )
   return SimulatorWorkspace(
     simulator: simulator,
-    memoryInspector: WorkspaceMemoryInspectorStub(),
+    memoryInspector: memoryInspector,
     receiptStore: receiptStore,
     storageManager: WorkspaceStorageManagerStub(),
     operationGate: OperationGate(),

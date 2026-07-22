@@ -89,6 +89,8 @@ struct StorageManagerBehaviorTests {
       #expect(!bundles.canClean)
       #expect(bundles.bytes > 0)
       #expect(plan.cleanableBytes == cache.bytes)
+      #expect(plan.items.contains { $0.relativePath.hasSuffix("Library/Caches") })
+      #expect(!plan.items.contains { $0.relativePath.contains("Containers/Bundle/Application") })
 
       let reclaimed = try await manager.clean(
         device: fixture.device,

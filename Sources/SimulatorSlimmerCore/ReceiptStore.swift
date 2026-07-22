@@ -8,6 +8,8 @@ protocol ReceiptStoring: Sendable {
 }
 
 actor ReceiptStore: ReceiptStoring {
+  private static let supportedSchemaVersion = 1
+
   private let directoryURL: URL
   private let fileManager: FileManager
   private let encoder: JSONEncoder
@@ -44,9 +46,17 @@ actor ReceiptStore: ReceiptStoring {
     guard fileManager.fileExists(atPath: url.path) else {
       throw SimulatorWorkspaceError.receiptNotFound(id)
     }
+    return try decodeReceipt(at: url, id: id, requireSupportedSchema: true)
+  }
+
+  private func decodeReceipt(
+    at url: URL,
+    id: ReceiptID,
+    requireSupportedSchema: Bool
+  ) throws -> OperationReceipt {
     do {
       let receipt = try decoder.decode(OperationReceipt.self, from: Data(contentsOf: url))
-      guard receipt.schemaVersion == 1 else {
+      guard !requireSupportedSchema || receipt.schemaVersion == Self.supportedSchemaVersion else {
         throw SimulatorWorkspaceError.malformedOutput(
           "回执 \(id.rawValue.uuidString) 使用不支持的版本 \(receipt.schemaVersion)"
         )
@@ -73,7 +83,8 @@ actor ReceiptStore: ReceiptStoring {
       guard let uuid = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else {
         continue
       }
-      if let receipt = try? await receipt(id: ReceiptID(rawValue: uuid)) {
+      let id = ReceiptID(rawValue: uuid)
+      if let receipt = try? decodeReceipt(at: url, id: id, requireSupportedSchema: false) {
         receipts.append(receipt)
       }
     }
@@ -83,7 +94,9 @@ actor ReceiptStore: ReceiptStoring {
   func recoverInterruptedReceipts() async throws -> [OperationReceipt] {
     var recovered: [OperationReceipt] = []
     for var receipt in try await allReceipts()
-    where receipt.status == .prepared || receipt.status == .running {
+    where receipt.schemaVersion == Self.supportedSchemaVersion
+      && (receipt.status == .prepared || receipt.status == .running)
+    {
       receipt.status = .partial
       receipt.finishedAt = Date()
       receipt.messages.append("应用上次运行期间意外中断；已保留现状，可按回执恢复")

@@ -72,6 +72,40 @@ struct ReceiptStoreBehaviorTests {
     }
   }
 
+  @Test("未知版本回执只读可见但不可恢复或改写")
+  func futureSchemaReceiptRemainsReadOnly() async throws {
+    try await withTemporaryDirectory { directory in
+      let store = ReceiptStore(directoryURL: directory)
+      let futureReceipt = OperationReceipt(
+        schemaVersion: 2,
+        kind: .optimize,
+        deviceID: SimulatorID(
+          rawValue: "11111111-2222-4333-8444-555555555555"
+        ),
+        deviceName: "未来设备",
+        status: .running,
+        startedAt: Date(timeIntervalSince1970: 400),
+        originalDeviceState: .booted
+      )
+      try await store.save(futureReceipt)
+
+      let visibleReceipts = try await store.allReceipts()
+      #expect(visibleReceipts.count == 1)
+      #expect(visibleReceipts.first?.id == futureReceipt.id)
+      #expect(visibleReceipts.first?.schemaVersion == 2)
+      #expect(visibleReceipts.first?.status == .running)
+
+      await #expect(throws: SimulatorWorkspaceError.self) {
+        _ = try await store.receipt(id: futureReceipt.id)
+      }
+
+      let recovered = try await store.recoverInterruptedReceipts()
+      #expect(recovered.isEmpty)
+      #expect(try await store.allReceipts().first?.status == .running)
+      #expect(try await store.allReceipts().first?.schemaVersion == 2)
+    }
+  }
+
   private func makeReceipt(
     status: OperationStatus,
     startedAt: Date

@@ -323,6 +323,20 @@ public struct StorageCategorySummary: Codable, Hashable, Sendable, Identifiable 
   }
 }
 
+public struct StorageItemSummary: Codable, Hashable, Sendable, Identifiable {
+  public let categoryID: String
+  public let relativePath: String
+  public let bytes: Int64
+
+  public init(categoryID: String, relativePath: String, bytes: Int64) {
+    self.categoryID = categoryID
+    self.relativePath = relativePath
+    self.bytes = bytes
+  }
+
+  public var id: String { "\(categoryID):\(relativePath)" }
+}
+
 public struct StoragePlan: Codable, Sendable, Identifiable {
   public let id: UUID
   public let deviceID: SimulatorID
@@ -330,6 +344,7 @@ public struct StoragePlan: Codable, Sendable, Identifiable {
   public let totalBytes: Int64
   public let cleanableBytes: Int64
   public let categories: [StorageCategorySummary]
+  public let items: [StorageItemSummary]
 
   public init(
     id: UUID = UUID(),
@@ -337,7 +352,8 @@ public struct StoragePlan: Codable, Sendable, Identifiable {
     generatedAt: Date = Date(),
     totalBytes: Int64,
     cleanableBytes: Int64,
-    categories: [StorageCategorySummary]
+    categories: [StorageCategorySummary],
+    items: [StorageItemSummary] = []
   ) {
     self.id = id
     self.deviceID = deviceID
@@ -345,6 +361,7 @@ public struct StoragePlan: Codable, Sendable, Identifiable {
     self.totalBytes = totalBytes
     self.cleanableBytes = cleanableBytes
     self.categories = categories
+    self.items = items
   }
 }
 
@@ -378,6 +395,7 @@ public struct DeviceSnapshot: Sendable {
 
 public enum OperationKind: String, Codable, Sendable {
   case optimize
+  case verify
   case restore
   case scanStorage
   case cleanStorage
@@ -395,6 +413,7 @@ public enum SimulatorOperation: Sendable {
     profile: OptimizationProfile,
     customDisabledLabels: Set<String>
   )
+  case verify(deviceID: SimulatorID, receiptID: ReceiptID)
   case restore(deviceID: SimulatorID, receiptID: ReceiptID)
   case scanStorage(deviceID: SimulatorID)
   case cleanStorage(
@@ -412,7 +431,8 @@ public enum SimulatorOperation: Sendable {
 
   public var deviceID: SimulatorID {
     switch self {
-    case .optimize(let deviceID, _, _), .restore(let deviceID, _),
+    case .optimize(let deviceID, _, _), .verify(let deviceID, _),
+      .restore(let deviceID, _),
       .scanStorage(let deviceID), .cleanStorage(let deviceID, _, _, _),
       .boot(let deviceID), .shutdown(let deviceID), .erase(let deviceID),
       .delete(let deviceID), .clone(let deviceID, _), .openSimulator(let deviceID):
@@ -423,6 +443,7 @@ public enum SimulatorOperation: Sendable {
   public var kind: OperationKind {
     switch self {
     case .optimize: .optimize
+    case .verify: .verify
     case .restore: .restore
     case .scanStorage: .scanStorage
     case .cleanStorage: .cleanStorage

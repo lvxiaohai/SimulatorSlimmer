@@ -8,6 +8,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
   private let operationGate: OperationGate
   private let catalog: ServiceCatalog?
   private let catalogLoadError: String?
+  private let memoryStabilizationDelay: Duration
   private var didRecoverInterruptedReceipts = false
 
   public init() {
@@ -17,6 +18,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     self.receiptStore = ReceiptStore()
     self.storageManager = StorageManager()
     self.operationGate = OperationGate()
+    self.memoryStabilizationDelay = .seconds(2)
     do {
       self.catalog = try ServiceCatalog.bundled()
       self.catalogLoadError = nil
@@ -32,7 +34,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     receiptStore: any ReceiptStoring,
     storageManager: any StorageManaging,
     operationGate: OperationGate,
-    catalog: ServiceCatalog
+    catalog: ServiceCatalog,
+    memoryStabilizationDelay: Duration = .zero
   ) {
     self.simulator = simulator
     self.memoryInspector = memoryInspector
@@ -41,6 +44,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     self.operationGate = operationGate
     self.catalog = catalog
     self.catalogLoadError = nil
+    self.memoryStabilizationDelay = memoryStabilizationDelay
   }
 
   public func overview() async throws -> WorkspaceOverview {
@@ -49,7 +53,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     async let receipts = receiptStore.allReceipts()
     let (resolvedInventory, resolvedReceipts) = try await (inventory, receipts)
     let pending = resolvedReceipts.filter {
-      $0.status == .prepared || $0.status == .running
+      $0.schemaVersion == 1 && ($0.status == .prepared || $0.status == .running)
     }
     return WorkspaceOverview(
       inventory: resolvedInventory,
@@ -178,6 +182,23 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
         requiresConfirmation: true
       )
 
+    case .verify(_, let receiptID):
+      let source = try await receiptStore.receipt(id: receiptID)
+      guard source.deviceID == operation.deviceID, source.kind == .optimize else {
+        throw SimulatorWorkspaceError.invalidOperation("该回执不能用于当前设备继续验证")
+      }
+      let successfulChanges = source.appliedChanges.filter(\.succeeded)
+      return OperationPreview(
+        operation: operation,
+        title: "继续验证 \(context.device.name)",
+        summary: successfulChanges.isEmpty
+          ? "该回执尚未记录服务变更；将确认设备可用性和当前状态。"
+          : "将只读核对中断前已执行的 \(successfulChanges.count) 项服务状态，并保存新的验证回执。",
+        serviceChanges: successfulChanges.map(\.change),
+        warnings: powerStateWarnings(context.device, action: "验证"),
+        requiresConfirmation: true
+      )
+
     case .restore(_, let receiptID):
       let source = try await receiptStore.receipt(id: receiptID)
       guard source.deviceID == operation.deviceID, source.kind == .optimize else {
@@ -230,6 +251,9 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
         throw SimulatorWorkspaceError.invalidOperation("清理请求包含未知或受保护类别")
       }
       let selectedBytes = selected.reduce(Int64(0)) { $0 + $1.bytes }
+      let selectedTargetCount = plan.items.filter {
+        categoryIDs.contains($0.categoryID)
+      }.count
       var warnings = ["删除后无法通过本应用撤销；缓存和临时文件由系统按需重建"]
       if context.device.state == .booted {
         warnings.append(
@@ -241,7 +265,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       return OperationPreview(
         operation: operation,
         title: "清理 \(context.device.name) 的存储",
-        summary: "将清理 \(selected.count) 个高置信类别，并在删除前再次验证路径与文件身份。",
+        summary:
+          "将清理 \(selected.count) 个高置信类别中的 \(selectedTargetCount) 个路径，并在删除前再次验证路径与文件身份。",
         selectedBytes: selectedBytes,
         warnings: warnings,
         requiresConfirmation: true
@@ -316,6 +341,24 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     }
     pair.continuation.onTermination = { @Sendable _ in task.cancel() }
     return pair.stream
+  }
+
+  public func exportDiagnostics(to destinationURL: URL) async throws -> URL {
+    try await recoverInterruptedReceiptsIfNeeded()
+    async let inventory = simulator.inventory()
+    async let receipts = receiptStore.allReceipts()
+    let exporter = DiagnosticsExporter()
+    let result = try await exporter.export(
+      inventory: inventory,
+      receipts: receipts,
+      to: destinationURL
+    )
+    await DiagnosticLogStore.shared.record(
+      level: .info,
+      event: "diagnostics-exported",
+      detail: destinationURL.lastPathComponent
+    )
+    return result
   }
 
   private func deviceContext(_ deviceID: SimulatorID) async throws -> DeviceContext {
@@ -473,12 +516,25 @@ extension SimulatorWorkspace {
       try await receiptStore.save(receipt)
       receipt.status = .running
       try await receiptStore.save(receipt)
+      await DiagnosticLogStore.shared.record(
+        level: .info,
+        event: "operation-started:\(operation.kind.rawValue)",
+        operationID: operationID,
+        deviceID: operation.deviceID
+      )
 
       switch operation {
       case .optimize(_, let profile, let customDisabledLabels):
         try await executeOptimization(
           profile: profile,
           customDisabledLabels: customDisabledLabels,
+          context: context,
+          receipt: &receipt,
+          continuation: continuation
+        )
+      case .verify(_, let sourceReceiptID):
+        try await executeVerification(
+          sourceReceiptID: sourceReceiptID,
           context: context,
           receipt: &receipt,
           continuation: continuation
@@ -522,6 +578,12 @@ extension SimulatorWorkspace {
         receipt.finalDeviceState = await currentDeviceState(operation.deviceID)
       }
       try await receiptStore.save(receipt)
+      await DiagnosticLogStore.shared.record(
+        level: receipt.status == .succeeded ? .info : .warning,
+        event: "operation-finished:\(operation.kind.rawValue):\(receipt.status.rawValue)",
+        operationID: operationID,
+        deviceID: operation.deviceID
+      )
 
       emit(
         continuation,
@@ -556,6 +618,15 @@ extension SimulatorWorkspace {
         receipt.finishedAt = Date()
         receipt.finalDeviceState = await currentDeviceState(operation.deviceID)
         try? await receiptStore.save(receipt)
+        await DiagnosticLogStore.shared.record(
+          level: cancelled ? .warning : .error,
+          event: cancelled
+            ? "operation-cancelled:\(operation.kind.rawValue)"
+            : "operation-failed:\(operation.kind.rawValue)",
+          operationID: operationID,
+          deviceID: operation.deviceID,
+          detail: error.localizedDescription
+        )
 
         emit(
           continuation,
@@ -599,7 +670,7 @@ extension SimulatorWorkspace {
     receipt.baselineDisabledLabels = baseline
     try await receiptStore.save(receipt)
 
-    await measureMemory(
+    try await measureMemory(
       timing: .before,
       receipt: &receipt,
       continuation: continuation
@@ -637,11 +708,12 @@ extension SimulatorWorkspace {
       receipt: &receipt,
       continuation: continuation
     )
-    await measureMemory(
+    try await measureMemory(
       timing: .after,
       receipt: &receipt,
       continuation: continuation
     )
+    try await recordMemoryComparison(receipt: &receipt)
     try await returnToOriginalPowerState(
       context: context,
       receipt: &receipt,
@@ -669,7 +741,7 @@ extension SimulatorWorkspace {
     let currentDisabled = try await simulator.disabledLabels(for: context.device.id)
     receipt.baselineDisabledLabels = currentDisabled
     try await receiptStore.save(receipt)
-    await measureMemory(timing: .before, receipt: &receipt, continuation: continuation)
+    try await measureMemory(timing: .before, receipt: &receipt, continuation: continuation)
 
     let changes = try restoreChanges(
       source: source,
@@ -707,7 +779,87 @@ extension SimulatorWorkspace {
       receipt: &receipt,
       continuation: continuation
     )
-    await measureMemory(timing: .after, receipt: &receipt, continuation: continuation)
+    try await measureMemory(timing: .after, receipt: &receipt, continuation: continuation)
+    try await recordMemoryComparison(receipt: &receipt)
+    try await returnToOriginalPowerState(
+      context: context,
+      receipt: &receipt,
+      continuation: continuation
+    )
+  }
+
+  private func executeVerification(
+    sourceReceiptID: ReceiptID,
+    context: DeviceContext,
+    receipt: inout OperationReceipt,
+    continuation: AsyncThrowingStream<OperationEvent, Error>.Continuation
+  ) async throws {
+    let source = try await receiptStore.receipt(id: sourceReceiptID)
+    guard source.deviceID == context.device.id, source.kind == .optimize else {
+      throw SimulatorWorkspaceError.invalidOperation("该回执不能用于当前设备继续验证")
+    }
+
+    try await ensureBooted(
+      context: context,
+      receipt: receipt,
+      continuation: continuation,
+      reason: "继续验证服务状态"
+    )
+    receipt.baselineDisabledLabels = source.baselineDisabledLabels
+    receipt.messages.append("验证来源回执：\(source.id.rawValue.uuidString.lowercased())")
+    try await receiptStore.save(receipt)
+
+    let expectedChanges = source.appliedChanges.filter(\.succeeded).map(\.change)
+    emit(
+      continuation,
+      operationID: receipt.id,
+      deviceID: receipt.deviceID,
+      phase: .verifying,
+      message: expectedChanges.isEmpty
+        ? "回执未记录已执行变更，正在确认设备状态"
+        : "正在只读核对中断前的 \(expectedChanges.count) 项服务状态",
+      totalCount: expectedChanges.count
+    )
+
+    let actualDisabled = try await simulator.disabledLabels(for: context.device.id)
+    let mismatches = expectedChanges.filter { change in
+      let isDisabled = actualDisabled.contains(change.label)
+      return change.transition == .disable ? !isDisabled : isDisabled
+    }
+    if mismatches.isEmpty {
+      receipt.messages.append(
+        expectedChanges.isEmpty
+          ? "设备可用；中断前没有已记录的服务变更"
+          : "中断前已执行的服务状态全部验证一致"
+      )
+      emit(
+        continuation,
+        operationID: receipt.id,
+        deviceID: receipt.deviceID,
+        phase: .verifying,
+        state: .succeeded,
+        message: "继续验证完成，状态一致",
+        completedCount: expectedChanges.count,
+        totalCount: expectedChanges.count
+      )
+    } else {
+      receipt.status = .partial
+      receipt.messages.append(
+        "继续验证不一致：\(mismatches.map(\.label).joined(separator: ", "))"
+      )
+      emit(
+        continuation,
+        operationID: receipt.id,
+        deviceID: receipt.deviceID,
+        phase: .verifying,
+        state: .warning,
+        message: "有 \(mismatches.count) 项状态与中断回执不一致",
+        completedCount: expectedChanges.count,
+        totalCount: expectedChanges.count
+      )
+    }
+    try await receiptStore.save(receipt)
+    try await measureMemory(timing: .after, receipt: &receipt, continuation: continuation)
     try await returnToOriginalPowerState(
       context: context,
       receipt: &receipt,
@@ -995,7 +1147,7 @@ extension SimulatorWorkspace {
     timing: MemoryTiming,
     receipt: inout OperationReceipt,
     continuation: AsyncThrowingStream<OperationEvent, Error>.Continuation
-  ) async {
+  ) async throws {
     let phase: OperationPhase = timing == .before ? .measuringBefore : .measuringAfter
     emit(
       continuation,
@@ -1005,6 +1157,7 @@ extension SimulatorWorkspace {
       message: timing == .before ? "正在记录优化前物理内存" : "正在记录优化后物理内存"
     )
     do {
+      try await Task.sleep(for: memoryStabilizationDelay)
       let snapshot = try await memoryInspector.snapshot(for: receipt.deviceID)
       if timing == .before {
         receipt.memoryBefore = snapshot
@@ -1012,6 +1165,8 @@ extension SimulatorWorkspace {
         receipt.memoryAfter = snapshot
       }
       try await receiptStore.save(receipt)
+    } catch is CancellationError {
+      throw CancellationError()
     } catch {
       receipt.messages.append("内存测量不可用：\(error.localizedDescription)")
       try? await receiptStore.save(receipt)
@@ -1024,6 +1179,25 @@ extension SimulatorWorkspace {
         message: "内存测量不可用，但不会阻止服务操作"
       )
     }
+  }
+
+  private func recordMemoryComparison(
+    receipt: inout OperationReceipt
+  ) async throws {
+    guard let before = receipt.memoryBefore, let after = receipt.memoryAfter else { return }
+    guard before.method == after.method, after.collectedAt >= before.collectedAt else {
+      receipt.reclaimedBytes = nil
+      receipt.messages.append("内存采样条件不一致，未计算差值")
+      try await receiptStore.save(receipt)
+      return
+    }
+
+    let (difference, overflowed) = before.bytes.subtractingReportingOverflow(after.bytes)
+    receipt.reclaimedBytes = overflowed ? nil : difference
+    receipt.messages.append(
+      "内存对比条件：同一设备处于 Booted 状态，前后采用 \(before.method) 并等待相同稳定时间"
+    )
+    try await receiptStore.save(receipt)
   }
 
   private func returnToOriginalPowerState(

@@ -159,7 +159,17 @@ actor StorageManager: StorageManaging {
       deviceID: device.id,
       totalBytes: totalBytes,
       cleanableBytes: safeBytes,
-      categories: summaries
+      categories: summaries,
+      items: targets.map { target in
+        StorageItemSummary(
+          categoryID: target.categoryID,
+          relativePath: relativePath(target.url, inside: canonicalRoot),
+          bytes: target.scannedBytes
+        )
+      }.sorted {
+        if $0.categoryID != $1.categoryID { return $0.categoryID < $1.categoryID }
+        return $0.relativePath.localizedStandardCompare($1.relativePath) == .orderedAscending
+      }
     )
     return StoragePlanRecord(
       plan: plan,
@@ -304,6 +314,15 @@ actor StorageManager: StorageManaging {
     let rootPath = root.standardizedFileURL.path
     let candidatePath = candidate.standardizedFileURL.path
     return candidatePath.hasPrefix(rootPath.hasSuffix("/") ? rootPath : rootPath + "/")
+  }
+
+  private static func relativePath(_ candidate: URL, inside root: URL) -> String {
+    let rootPath = root.standardizedFileURL.path
+    let candidatePath = candidate.standardizedFileURL.path
+    guard candidatePath.hasPrefix(rootPath) else { return candidate.lastPathComponent }
+    return String(candidatePath.dropFirst(rootPath.count)).trimmingCharacters(
+      in: CharacterSet(charactersIn: "/")
+    )
   }
 
   private static func allocatedSize(of url: URL, inside root: URL) throws -> Int64 {

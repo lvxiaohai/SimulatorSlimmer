@@ -7,4 +7,5 @@ public protocol SimulatorWorkspaceClient: Sendable {
   func perform(
     _ operation: SimulatorOperation
   ) async -> AsyncThrowingStream<OperationEvent, Error>
+  func exportDiagnostics(to destinationURL: URL) async throws -> URL
 }
