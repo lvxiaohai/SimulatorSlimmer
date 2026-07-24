@@ -61,19 +61,19 @@ final class SimulatorSlimmerUITests: XCTestCase {
   func testOptimizationProfileDraftIsScopedToEachDevice() {
     let app = launch(.ready)
 
-    let efficientProfile = app.radioButtons["高效"]
-    XCTAssertTrue(efficientProfile.waitForExistence(timeout: 5))
-    efficientProfile.click()
-    XCTAssertTrue(efficientProfile.isSelected)
+    let extremeProfile = app.radioButtons["极致"]
+    XCTAssertTrue(extremeProfile.waitForExistence(timeout: 5))
+    extremeProfile.click()
+    XCTAssertTrue(extremeProfile.isSelected)
 
     app.buttons["iPad Pro 13-inch"].click()
-    let balancedProfile = app.radioButtons["均衡"]
-    XCTAssertTrue(balancedProfile.waitForExistence(timeout: 3))
-    XCTAssertTrue(balancedProfile.isSelected)
+    let recommendedProfile = app.radioButtons["推荐"]
+    XCTAssertTrue(recommendedProfile.waitForExistence(timeout: 3))
+    XCTAssertTrue(recommendedProfile.isSelected)
 
     app.buttons["iPhone 17 Pro"].click()
-    XCTAssertTrue(efficientProfile.waitForExistence(timeout: 3))
-    XCTAssertTrue(efficientProfile.isSelected)
+    XCTAssertTrue(extremeProfile.waitForExistence(timeout: 3))
+    XCTAssertTrue(extremeProfile.isSelected)
   }
 
   func testBootedDeviceRequiresShutdownBeforeStorageOperations() {

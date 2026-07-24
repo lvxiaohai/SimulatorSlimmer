@@ -16,13 +16,13 @@ final class AppModel {
   var workspaceModal: WorkspaceModal?
   var selectedSection: DeviceSection = .optimization
   var snapshot: DeviceSnapshot?
-  var selectedProfile: OptimizationProfile = .balanced
+  var selectedProfile: OptimizationProfile = .recommended
   var customDisabledLabels: Set<String> = []
   var customServiceSnapshot: DeviceSnapshot?
   var isLoadingCustomServiceSnapshot = false
   var selectedStorageCategoryIDs: Set<String> = []
   var batchSelectedDeviceIDs: Set<SimulatorID> = []
-  var batchProfile: OptimizationProfile = .balanced
+  var batchProfile: OptimizationProfile = .recommended
   var batchRun: BatchOptimizationRun?
   var batchPreviewPresentation: BatchPreviewPresentation?
   var isPreparingBatchPreview = false
@@ -301,11 +301,23 @@ final class AppModel {
   }
 
   private static func storedDefaultProfile() -> OptimizationProfile {
-    guard
-      let rawValue = UserDefaults.standard.string(forKey: "defaultProfile"),
-      let profile = OptimizationProfile(rawValue: rawValue)
-    else {
-      return .balanced
+    let defaults = UserDefaults.standard
+    guard let rawValue = defaults.string(forKey: "defaultProfile") else {
+      return .recommended
+    }
+    let profile: OptimizationProfile
+    switch rawValue {
+    case OptimizationProfile.recommended.rawValue, "conservative", "balanced":
+      profile = .recommended
+    case OptimizationProfile.extreme.rawValue, "efficient":
+      profile = .extreme
+    case OptimizationProfile.custom.rawValue:
+      profile = .recommended
+    default:
+      profile = .recommended
+    }
+    if rawValue != profile.rawValue {
+      defaults.set(profile.rawValue, forKey: "defaultProfile")
     }
     return profile
   }

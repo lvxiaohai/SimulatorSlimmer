@@ -147,8 +147,8 @@ struct OptimizationView: View {
       VStack(alignment: .leading, spacing: 16) {
         InstrumentSectionLabel(
           title: "optimization.profile.title",
-          detail: model.selectedProfile == .balanced
-            ? L10n.text("profile.recommended")
+          detail: model.selectedProfile == .recommended
+            ? L10n.text("profile.default")
             : nil
         )
 
@@ -165,11 +165,11 @@ struct OptimizationView: View {
 
         HStack(alignment: .top, spacing: 10) {
           Image(
-            systemName: model.selectedProfile == .efficient
+            systemName: model.selectedProfile == .extreme
               ? "exclamationmark.triangle.fill"
               : "info.circle.fill"
           )
-          .foregroundStyle(model.selectedProfile == .efficient ? .orange : .mint)
+          .foregroundStyle(model.selectedProfile == .extreme ? .orange : .mint)
           .accessibilityHidden(true)
           Text(model.selectedProfile.localizedSummary)
             .font(.callout)

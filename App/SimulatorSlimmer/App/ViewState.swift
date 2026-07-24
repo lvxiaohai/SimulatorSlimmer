@@ -243,18 +243,16 @@ extension SimulatorState {
 extension OptimizationProfile {
   var localizedTitle: String {
     switch self {
-    case .conservative: L10n.text("profile.conservative")
-    case .balanced: L10n.text("profile.balanced")
-    case .efficient: L10n.text("profile.efficient")
+    case .recommended: L10n.text("profile.recommended")
+    case .extreme: L10n.text("profile.extreme")
     case .custom: L10n.text("profile.custom")
     }
   }
 
   var localizedSummary: String {
     switch self {
-    case .conservative: L10n.text("profile.conservative.summary")
-    case .balanced: L10n.text("profile.balanced.summary")
-    case .efficient: L10n.text("profile.efficient.summary")
+    case .recommended: L10n.text("profile.recommended.summary")
+    case .extreme: L10n.text("profile.extreme.summary")
     case .custom: L10n.text("profile.custom.summary")
     }
   }

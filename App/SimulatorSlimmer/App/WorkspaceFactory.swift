@@ -317,7 +317,7 @@ enum WorkspaceFactory {
           title: "优化计划",
           summary: "仅修改预览中列出的模拟器后台服务；完成后会重新读取状态并保存恢复基线。",
           serviceChanges: changes,
-          warnings: profile == .efficient ? ["高效方案可能影响部分系统级测试场景。"] : []
+          warnings: profile == .extreme ? ["极致方案会停用全部可精简服务。"] : []
         )
       case .verify(let deviceID, let receiptID):
         guard let source = receipts.first(where: { $0.id == receiptID }) else {
@@ -429,7 +429,7 @@ enum WorkspaceFactory {
       }
       let isPartial =
         mode == .partial && operation.kind == .optimize && operation.deviceID == tablet.id
-      let snapshotChanges = Self.changes(for: .balanced, services: Self.services)
+      let snapshotChanges = Self.changes(for: .recommended, services: Self.services)
       let applied =
         operation.kind == .optimize
         ? snapshotChanges.map {
@@ -533,7 +533,7 @@ enum WorkspaceFactory {
         impact: "暂停系统个性化建议与预测更新。",
         category: "intelligence",
         risk: .low,
-        profiles: [.conservative, .balanced, .efficient]
+        profiles: [.recommended, .extreme]
       ),
       service(
         id: "knowledge",
@@ -542,17 +542,7 @@ enum WorkspaceFactory {
         impact: "暂停非必要的设备知识索引。",
         category: "intelligence",
         risk: .moderate,
-        profiles: [.balanced, .efficient]
-      ),
-      service(
-        id: "sharing",
-        label: "com.apple.sharingd",
-        name: "共享服务",
-        impact: "核心共享能力保持启用。",
-        category: "sync",
-        risk: .protected,
-        profiles: [],
-        alwaysEnabled: true
+        profiles: [.recommended, .extreme]
       ),
       service(
         id: "cloud",
@@ -561,7 +551,7 @@ enum WorkspaceFactory {
         impact: "暂停模拟器中的云端后台同步。",
         category: "sync",
         risk: .moderate,
-        profiles: [.balanced, .efficient]
+        profiles: [.recommended, .extreme]
       ),
       service(
         id: "media-analysis",
@@ -570,7 +560,7 @@ enum WorkspaceFactory {
         impact: "暂停照片与媒体的后台分析。",
         category: "media",
         risk: .low,
-        profiles: [.conservative, .balanced, .efficient]
+        profiles: [.extreme]
       ),
       service(
         id: "photo-library",
@@ -579,7 +569,7 @@ enum WorkspaceFactory {
         impact: "暂停高开销的照片识别任务。",
         category: "media",
         risk: .high,
-        profiles: [.efficient]
+        profiles: [.extreme]
       ),
     ]
 

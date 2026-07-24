@@ -575,7 +575,7 @@ private struct BatchOptimizationView: View {
   @Bindable var model: AppModel
 
   private let profiles: [OptimizationProfile] = [
-    .conservative, .balanced, .efficient, .custom,
+    .recommended, .extreme, .custom,
   ]
 
   private var runIsActive: Bool { model.batchRun?.isRunning == true }
@@ -583,6 +583,15 @@ private struct BatchOptimizationView: View {
     runIsActive || model.isPreparingBatchPreview || model.batchPreviewPresentation != nil
   }
   private var selectedCount: Int { model.batchSelectedDeviceIDs.count }
+  private var customDisabledCount: Int {
+    guard let snapshot = model.customServiceSnapshot else { return 0 }
+    let candidateLabels = Set(
+      snapshot.services
+        .filter(\.isOptimizationCandidate)
+        .map(\.service.label)
+    )
+    return model.customDisabledLabels.intersection(candidateLabels).count
+  }
   private var hasBusySelection: Bool {
     model.availableBatchDevices.contains {
       model.batchSelectedDeviceIDs.contains($0.id) && model.isDeviceBusy($0.id)
@@ -659,7 +668,7 @@ private struct BatchOptimizationView: View {
               Text(
                 L10n.formatted(
                   "batch.custom-selection.summary",
-                  model.customDisabledLabels.count
+                  customDisabledCount
                 )
               )
               .font(.caption)
@@ -776,7 +785,7 @@ private struct BatchOptimizationView: View {
 
   private var profileSummarySymbol: String {
     switch model.batchProfile {
-    case .efficient:
+    case .extreme:
       "bolt.fill"
     case .custom:
       "slider.horizontal.3"
@@ -786,7 +795,7 @@ private struct BatchOptimizationView: View {
   }
 
   private var profileSummaryColor: Color {
-    model.batchProfile == .efficient ? .orange : .mint
+    model.batchProfile == .extreme ? .orange : .mint
   }
 
   private var batchPreviewProgressPanel: some View {

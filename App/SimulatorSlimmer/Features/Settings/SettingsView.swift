@@ -6,7 +6,7 @@ struct SettingsView: View {
   @AppStorage("automaticRefresh") private var automaticRefresh = true
   @AppStorage("automaticRefreshInterval") private var automaticRefreshInterval = 30.0
   @AppStorage("showUnavailableDevices") private var showUnavailableDevices = false
-  @AppStorage("defaultProfile") private var defaultProfile = OptimizationProfile.balanced.rawValue
+  @AppStorage("defaultProfile") private var defaultProfile = OptimizationProfile.recommended.rawValue
   @AppStorage("menuBarEnabled") private var menuBarEnabled = true
 
   var body: some View {
