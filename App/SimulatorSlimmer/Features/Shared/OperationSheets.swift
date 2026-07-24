@@ -1,6 +1,62 @@
 import SimulatorSlimmerCore
 import SwiftUI
 
+struct OperationFlowSheet: View {
+  let presentation: PreviewPresentation
+  @Bindable var model: AppModel
+
+  private var operation: PresentedOperation? {
+    guard
+      let operation = model.operations[presentation.preview.operation.deviceID],
+      operation.isRunning
+    else {
+      return nil
+    }
+    return operation
+  }
+
+  var body: some View {
+    if let operation {
+      OperationExecutionSheet(
+        presentation: operation,
+        stop: model.requestStop
+      )
+    } else {
+      OperationPreviewSheet(
+        presentation: presentation,
+        cancel: { model.previewPresentation = nil },
+        confirm: model.runPreviewedOperation
+      )
+    }
+  }
+}
+
+private struct OperationExecutionSheet: View {
+  let presentation: PresentedOperation
+  let stop: () -> Void
+
+  var body: some View {
+    ScrollView {
+      OperationProgressPanel(
+        presentation: presentation,
+        stop: stop
+      )
+      .padding(20)
+    }
+    .scrollBounceBehavior(.basedOnSize)
+    .frame(
+      minWidth: 560,
+      idealWidth: 620,
+      minHeight: 400,
+      idealHeight: 500
+    )
+    .background(Color.instrumentBackground)
+    .interactiveDismissDisabled()
+    .suppressInitialFocus()
+    .accessibilityIdentifier("operation-execution.sheet")
+  }
+}
+
 struct OperationPreviewSheet: View {
   let presentation: PreviewPresentation
   let cancel: () -> Void

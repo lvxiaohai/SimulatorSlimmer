@@ -1030,7 +1030,9 @@ final class AppModel {
 
   func runPreviewedOperation() {
     guard let operation = previewPresentation?.preview.operation else { return }
-    previewPresentation = nil
+    if !isOptimizationFlow(operation.kind) {
+      previewPresentation = nil
+    }
     perform(operation)
   }
 
@@ -1385,8 +1387,10 @@ final class AppModel {
         }
       } catch is CancellationError {
         markCancelled(deviceID)
+        dismissOptimizationProgressSheet(for: operation)
       } catch {
         markFailed(deviceID, message: error.localizedDescription)
+        dismissOptimizationProgressSheet(for: operation)
       }
 
       await refreshAfterOperation(deviceID)
@@ -1403,6 +1407,16 @@ final class AppModel {
     operationTasks[deviceID] = task
   }
 
+  private func isOptimizationFlow(_ kind: OperationKind) -> Bool {
+    switch kind {
+    case .preflight, .optimize, .verify, .restore:
+      true
+    case .scanStorage, .cleanStorage, .boot, .shutdown, .erase, .delete, .clone,
+      .openSimulator:
+      false
+    }
+  }
+
   private func receive(_ event: OperationEvent) {
     var presentation =
       operations[event.deviceID]
@@ -1415,6 +1429,20 @@ final class AppModel {
       presentation.failureMessage = event.message
     }
     operations[event.deviceID] = presentation
+    if event.isTerminal {
+      dismissOptimizationProgressSheet(for: presentation.operation)
+    }
+  }
+
+  private func dismissOptimizationProgressSheet(for operation: SimulatorOperation) {
+    guard
+      isOptimizationFlow(operation.kind),
+      previewPresentation?.confirmsExecution == true,
+      previewPresentation?.preview.operation.deviceID == operation.deviceID
+    else {
+      return
+    }
+    previewPresentation = nil
   }
 
   private func deviceSuccessToastMessage(for kind: OperationKind) -> String? {

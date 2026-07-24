@@ -58,12 +58,7 @@ struct OptimizationView: View {
     if let operation = model.operations[snapshot.device.id],
       isOptimizationOperation(operation.operation.kind)
     {
-      if operation.isRunning {
-        OperationProgressPanel(
-          presentation: operation,
-          stop: model.requestStop
-        )
-      } else if let receipt = operation.receipt {
+      if let receipt = operation.receipt {
         OperationResultBanner(receipt: receipt)
       } else if let failure = operation.failureMessage {
         NoticeStrip(

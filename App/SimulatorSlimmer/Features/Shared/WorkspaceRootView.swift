@@ -95,10 +95,9 @@ struct WorkspaceRootView: View {
       model.selectionChanged()
     }
     .sheet(item: $model.previewPresentation) { presentation in
-      OperationPreviewSheet(
+      OperationFlowSheet(
         presentation: presentation,
-        cancel: { model.previewPresentation = nil },
-        confirm: { model.runPreviewedOperation() }
+        model: model
       )
     }
     .sheet(item: $model.workspaceModal) { modal in
