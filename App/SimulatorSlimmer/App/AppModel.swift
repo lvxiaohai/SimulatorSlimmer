@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 @Observable
 final class AppModel {
   private static let customDisabledLabelsDefaultsKey = "customDisabledLabels"
+  private static let lastKnownDisabledServiceLabelsDefaultsKey =
+    "lastKnownDisabledServiceLabelsByDevice"
 
   private let workspace: any SimulatorWorkspaceClient
 
@@ -47,6 +49,7 @@ final class AppModel {
   var dangerPresentation: DangerPresentation?
   var operations: [SimulatorID: PresentedOperation] = [:]
   var activeOperationDeviceIDs: Set<SimulatorID> = []
+  private var lastKnownDisabledServiceLabelsByDevice: [String: Set<String>]
 
   @ObservationIgnored private var overviewTask: Task<Void, Never>?
   @ObservationIgnored private var simulatorCreationOptionsTask: Task<Void, Never>?
@@ -75,6 +78,7 @@ final class AppModel {
 
   init(workspace: any SimulatorWorkspaceClient) {
     self.workspace = workspace
+    lastKnownDisabledServiceLabelsByDevice = Self.storedLastKnownDisabledServiceLabels()
     selectedProfile = Self.storedDefaultProfile()
     let storedCustomSelection = Self.storedCustomSelection()
     customDisabledLabels = storedCustomSelection.labels
@@ -351,6 +355,92 @@ final class AppModel {
     didInitializeCustomSelection = true
   }
 
+  private static func storedLastKnownDisabledServiceLabels() -> [String: Set<String>] {
+    guard
+      let data = UserDefaults.standard.data(
+        forKey: lastKnownDisabledServiceLabelsDefaultsKey
+      ),
+      let stored = try? JSONDecoder().decode([String: [String]].self, from: data)
+    else {
+      return [:]
+    }
+    return stored.mapValues { Set($0) }
+  }
+
+  private func persistLastKnownDisabledServiceLabels() {
+    let stored = lastKnownDisabledServiceLabelsByDevice.mapValues { $0.sorted() }
+    guard let data = try? JSONEncoder().encode(stored) else { return }
+    UserDefaults.standard.set(
+      data,
+      forKey: Self.lastKnownDisabledServiceLabelsDefaultsKey
+    )
+  }
+
+  private func cacheLastKnownServiceState(_ snapshot: DeviceSnapshot) {
+    guard
+      snapshot.device.state == .booted,
+      snapshot.optimizationSupport == .supported
+    else { return }
+    lastKnownDisabledServiceLabelsByDevice[snapshot.device.id.rawValue] = Set(
+      snapshot.services
+        .filter(\.isOptimizationCandidate)
+        .filter(\.isDisabled)
+        .map(\.service.label)
+    )
+    persistLastKnownDisabledServiceLabels()
+  }
+
+  private func cacheLastKnownServiceState(from receipt: OperationReceipt) {
+    if receipt.status == .succeeded,
+      receipt.kind == .erase || receipt.kind == .delete
+    {
+      lastKnownDisabledServiceLabelsByDevice.removeValue(
+        forKey: receipt.deviceID.rawValue
+      )
+      persistLastKnownDisabledServiceLabels()
+      return
+    }
+
+    guard
+      receipt.status == .succeeded,
+      receipt.baselineCapturedAt != nil,
+      receipt.kind == .optimize || receipt.kind == .restore
+    else { return }
+
+    var disabledLabels = receipt.baselineDisabledLabels
+    for applied in receipt.appliedChanges where applied.succeeded {
+      switch applied.change.transition {
+      case .disable:
+        disabledLabels.insert(applied.change.label)
+      case .enable:
+        disabledLabels.remove(applied.change.label)
+      }
+    }
+    lastKnownDisabledServiceLabelsByDevice[receipt.deviceID.rawValue] = disabledLabels
+    persistLastKnownDisabledServiceLabels()
+  }
+
+  func disabledServiceCount(for snapshot: DeviceSnapshot) -> Int? {
+    let optimizationLabels = Set(
+      snapshot.services
+        .filter(\.isOptimizationCandidate)
+        .map(\.service.label)
+    )
+    if snapshot.device.state == .booted {
+      return snapshot.services
+        .filter(\.isOptimizationCandidate)
+        .filter(\.isDisabled)
+        .count
+    }
+    guard
+      let cachedLabels =
+        lastKnownDisabledServiceLabelsByDevice[snapshot.device.id.rawValue]
+    else {
+      return nil
+    }
+    return cachedLabels.intersection(optimizationLabels).count
+  }
+
   private func loadCustomServiceSnapshotForBatch() {
     guard customServiceSnapshot == nil, customServiceSnapshotTask == nil else { return }
     guard
@@ -418,6 +508,7 @@ final class AppModel {
           selectedDeviceID == id
         else { return }
         snapshot = result
+        cacheLastKnownServiceState(result)
         cacheCustomServiceSnapshot(result)
         isLoadingSnapshot = false
         inspectingDeviceID = nil
@@ -1424,6 +1515,7 @@ final class AppModel {
     presentation.events.append(event)
     if let receipt = event.receipt {
       presentation.receipt = receipt
+      cacheLastKnownServiceState(from: receipt)
     }
     if event.isTerminal && event.state == .failed {
       presentation.failureMessage = event.message

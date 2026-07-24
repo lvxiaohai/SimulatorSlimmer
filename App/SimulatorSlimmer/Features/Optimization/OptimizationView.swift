@@ -13,8 +13,8 @@ struct OptimizationView: View {
     Set(optimizationServices.map(\.service.label))
   }
 
-  private var disabledServiceCount: Int {
-    optimizationServices.filter(\.isDisabled).count
+  private var disabledServiceCount: Int? {
+    model.disabledServiceCount(for: snapshot)
   }
 
   private var effectiveChanges: [ServiceChange] {
@@ -111,17 +111,15 @@ struct OptimizationView: View {
   private var servicesMetric: some View {
     MetricCard(
       eyebrow: "metric.services",
-      value: L10n.formatted("format.items", disabledServiceCount),
-      unitDetail: L10n.formatted(
-        "metric.services.detail",
-        effectiveChanges.count,
-        optimizationServices.count
-      ),
+      value: disabledServiceCount.map { L10n.formatted("format.items", $0) } ?? "-",
+      unitDetail: nil,
       symbol: "switch.2",
       tint: effectiveChanges.isEmpty ? .mint : .orange,
-      progress: optimizationServices.isEmpty
-        ? 0
-        : Double(disabledServiceCount) / Double(optimizationServices.count)
+      progress: disabledServiceCount.flatMap { count in
+        optimizationServices.isEmpty
+          ? nil
+          : Double(count) / Double(optimizationServices.count)
+      }
     )
   }
 

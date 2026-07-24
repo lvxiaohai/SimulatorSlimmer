@@ -225,7 +225,7 @@ struct InstrumentSectionLabel: View {
 struct MetricCard: View {
   let eyebrow: LocalizedStringResource
   let value: String
-  let unitDetail: String
+  let unitDetail: String?
   let symbol: String
   let tint: Color
   var progress: Double?
@@ -272,17 +272,20 @@ struct MetricCard: View {
             .frame(height: 3)
             .accessibilityHidden(true)
           }
-          Text(unitDetail)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(2)
+          if let unitDetail {
+            Text(unitDetail)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .lineLimit(2)
+          }
         }
+        .frame(minHeight: 16)
       }
     }
     .accessibilityElement(children: .combine)
     .accessibilityLabel(Text(eyebrow))
     .accessibilityValue(value)
-    .accessibilityHint(unitDetail)
+    .accessibilityHint(unitDetail ?? "")
   }
 }
 
