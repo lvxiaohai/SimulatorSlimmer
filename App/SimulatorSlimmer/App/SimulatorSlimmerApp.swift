@@ -125,6 +125,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     statusItem.menu = menu
     self.statusItem = statusItem
     rebuildMenu()
+    model.refresh()
   }
 
   private func removeStatusItem() {
@@ -146,18 +147,18 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     )
     menu.addItem(.separator())
 
-    if model.isRefreshing {
+    if !model.devices.isEmpty {
+      for device in model.devices {
+        menu.addItem(deviceMenuItem(device))
+      }
+    } else if model.isRefreshing {
       menu.addItem(disabledItem(title: "正在读取模拟器…"))
     } else if let refreshError = model.refreshError {
       let item = disabledItem(title: "读取失败")
       item.toolTip = refreshError
       menu.addItem(item)
-    } else if model.devices.isEmpty {
-      menu.addItem(disabledItem(title: "没有已启动的模拟器"))
     } else {
-      for device in model.devices {
-        menu.addItem(deviceMenuItem(device))
-      }
+      menu.addItem(disabledItem(title: "没有已启动的模拟器"))
     }
 
     menu.addItem(.separator())

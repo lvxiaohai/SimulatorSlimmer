@@ -1547,7 +1547,6 @@ final class MenuBarModel {
 
   func refresh() {
     refreshTask?.cancel()
-    devices = []
     isRefreshing = true
     refreshError = nil
     didChange?()
@@ -1608,7 +1607,6 @@ final class MenuBarModel {
         didChange?()
       } catch {
         guard !Task.isCancelled else { return }
-        devices = []
         refreshError = error.localizedDescription
         isRefreshing = false
         refreshTask = nil
@@ -1621,8 +1619,6 @@ final class MenuBarModel {
     refreshTask?.cancel()
     refreshTask = nil
     isRefreshing = false
-    devices = []
-    refreshError = nil
     didChange?()
   }
 
