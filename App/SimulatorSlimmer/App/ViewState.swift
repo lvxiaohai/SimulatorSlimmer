@@ -3,14 +3,20 @@ import SimulatorSlimmerCore
 
 enum SidebarSelection: Hashable {
   case device(SimulatorID)
+}
+
+enum WorkspaceModal: String, Identifiable {
   case batchOptimization
-  case history
+  case createSimulator
   case settings
+
+  var id: String { rawValue }
 }
 
 enum DeviceSection: String, CaseIterable, Identifiable {
   case optimization
   case storage
+  case applications
   case device
 
   var id: String { rawValue }
@@ -19,7 +25,24 @@ enum DeviceSection: String, CaseIterable, Identifiable {
     switch self {
     case .optimization: "tab.optimization"
     case .storage: "tab.storage"
+    case .applications: "tab.applications"
     case .device: "tab.device"
+    }
+  }
+}
+
+enum ApplicationListState {
+  case idle
+  case loading(deviceID: SimulatorID)
+  case loaded(deviceID: SimulatorID, snapshot: SimulatorApplicationListSnapshot)
+  case failed(deviceID: SimulatorID, message: String)
+
+  var deviceID: SimulatorID? {
+    switch self {
+    case .idle:
+      nil
+    case .loading(let deviceID), .loaded(let deviceID, _), .failed(let deviceID, _):
+      deviceID
     }
   }
 }
@@ -34,6 +57,11 @@ struct RuntimeDeviceGroup: Identifiable {
 struct AppNotice: Identifiable {
   let id = UUID()
   let title: String
+  let message: String
+}
+
+struct AppToast: Identifiable {
+  let id = UUID()
   let message: String
 }
 
@@ -85,10 +113,16 @@ struct PresentedOperation {
   var stopRequested = false
 
   var isRunning: Bool {
-    receipt == nil && failureMessage == nil
+    receipt == nil
+      && failureMessage == nil
+      && latestEvent?.isTerminal != true
   }
 
   var latestEvent: OperationEvent? { events.last }
+}
+
+struct OptimizationDraft {
+  let profile: OptimizationProfile
 }
 
 enum BatchQueueItemStatus: Equatable {

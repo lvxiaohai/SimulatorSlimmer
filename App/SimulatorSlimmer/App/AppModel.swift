@@ -7,15 +7,19 @@ import UniformTypeIdentifiers
 @MainActor
 @Observable
 final class AppModel {
+  private static let customDisabledLabelsDefaultsKey = "customDisabledLabels"
+
   private let workspace: any SimulatorWorkspaceClient
 
   var overview: WorkspaceOverview?
   var sidebarSelection: SidebarSelection?
+  var workspaceModal: WorkspaceModal?
   var selectedSection: DeviceSection = .optimization
-  var searchText = ""
   var snapshot: DeviceSnapshot?
   var selectedProfile: OptimizationProfile = .balanced
   var customDisabledLabels: Set<String> = []
+  var customServiceSnapshot: DeviceSnapshot?
+  var isLoadingCustomServiceSnapshot = false
   var selectedStorageCategoryIDs: Set<String> = []
   var batchSelectedDeviceIDs: Set<SimulatorID> = []
   var batchProfile: OptimizationProfile = .balanced
@@ -25,32 +29,53 @@ final class AppModel {
   var batchPreviewCompletedCount = 0
   var batchPreviewTotalCount = 0
   var isLoadingOverview = false
+  var simulatorCreationOptions: SimulatorCreationOptions?
+  var isLoadingSimulatorCreationOptions = false
+  var simulatorCreationError: String?
+  var isCreatingSimulator = false
   var isLoadingSnapshot = false
+  var snapshotLoadError: String?
+  var applicationListState: ApplicationListState = .idle
+  var openingApplicationBundleID: String?
   var isExportingDiagnostics = false
   var loadError: String?
   var notice: AppNotice?
+  var toast: AppToast?
   var previewPresentation: PreviewPresentation?
   var dangerPresentation: DangerPresentation?
-  var receiptPresentation: OperationReceipt?
   var operations: [SimulatorID: PresentedOperation] = [:]
+  var activeOperationDeviceIDs: Set<SimulatorID> = []
 
   @ObservationIgnored private var overviewTask: Task<Void, Never>?
+  @ObservationIgnored private var simulatorCreationOptionsTask: Task<Void, Never>?
+  @ObservationIgnored private var simulatorCreationTask: Task<Void, Never>?
+  @ObservationIgnored private var preferredDeviceIDAfterRefresh: SimulatorID?
+  @ObservationIgnored private var overviewRequestGeneration: UInt64 = 0
   @ObservationIgnored private var inspectionTask: Task<Void, Never>?
+  @ObservationIgnored private var customServiceSnapshotTask: Task<Void, Never>?
+  @ObservationIgnored private var inspectionRequestGeneration: UInt64 = 0
+  @ObservationIgnored private var inspectingDeviceID: SimulatorID?
+  @ObservationIgnored private var applicationListTask: Task<Void, Never>?
+  @ObservationIgnored private var applicationListRequestGeneration: UInt64 = 0
+  @ObservationIgnored private var applicationFolderTask: Task<Void, Never>?
   @ObservationIgnored private var previewTask: Task<Void, Never>?
   @ObservationIgnored private var diagnosticsTask: Task<Void, Never>?
   @ObservationIgnored private var batchPreviewTask: Task<Void, Never>?
   @ObservationIgnored private var batchTask: Task<Void, Never>?
   @ObservationIgnored private var operationTasks: [SimulatorID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var showSimulatorTasks: [SimulatorID: Task<Void, Never>] = [:]
+  @ObservationIgnored private var optimizationDrafts: [SimulatorID: OptimizationDraft] = [:]
+  @ObservationIgnored private var editingOptimizationDeviceID: SimulatorID?
   @ObservationIgnored private var batchPreviewReservedDeviceIDs: Set<SimulatorID> = []
   @ObservationIgnored private var didInitializeBatchSelection = false
+  @ObservationIgnored private var didInitializeCustomSelection = false
 
   init(workspace: any SimulatorWorkspaceClient) {
     self.workspace = workspace
-    if let storedProfile = UserDefaults.standard.string(forKey: "defaultProfile"),
-      let profile = OptimizationProfile(rawValue: storedProfile)
-    {
-      selectedProfile = profile
-    }
+    selectedProfile = Self.storedDefaultProfile()
+    let storedCustomSelection = Self.storedCustomSelection()
+    customDisabledLabels = storedCustomSelection.labels
+    didInitializeCustomSelection = storedCustomSelection.isInitialized
   }
 
   var selectedDeviceID: SimulatorID? {
@@ -65,16 +90,9 @@ final class AppModel {
 
   var runtimeGroups: [RuntimeDeviceGroup] {
     guard let overview else { return [] }
-    let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
     return overview.inventory.runtimes.compactMap { runtime in
       let devices = overview.inventory.devices
         .filter { $0.runtimeIdentifier == runtime.id }
-        .filter {
-          query.isEmpty
-            || $0.name.localizedCaseInsensitiveContains(query)
-            || $0.id.rawValue.localizedCaseInsensitiveContains(query)
-            || runtime.name.localizedCaseInsensitiveContains(query)
-        }
         .sorted { lhs, rhs in
           if lhs.state == .booted, rhs.state != .booted { return true }
           if lhs.state != .booted, rhs.state == .booted { return false }
@@ -110,8 +128,10 @@ final class AppModel {
   }
 
   var hasRunningOperation: Bool {
-    isPreparingBatchPreview
+    isCreatingSimulator
+      || isPreparingBatchPreview
       || batchRun?.isRunning == true
+      || !activeOperationDeviceIDs.isEmpty
       || operations.values.contains(where: \.isRunning)
   }
 
@@ -145,6 +165,8 @@ final class AppModel {
   }
 
   func refreshOverview() {
+    overviewRequestGeneration &+= 1
+    let requestGeneration = overviewRequestGeneration
     overviewTask?.cancel()
     isLoadingOverview = true
     loadError = nil
@@ -153,17 +175,31 @@ final class AppModel {
       guard let self else { return }
       do {
         let result = try await workspace.overview()
-        guard !Task.isCancelled else { return }
+        guard
+          !Task.isCancelled,
+          requestGeneration == overviewRequestGeneration
+        else { return }
         overview = result
         isLoadingOverview = false
         synchronizeBatchSelection(with: result.inventory.devices)
+        if let preferredDeviceIDAfterRefresh,
+          result.inventory.devices.contains(where: { $0.id == preferredDeviceIDAfterRefresh })
+        {
+          sidebarSelection = .device(preferredDeviceIDAfterRefresh)
+          self.preferredDeviceIDAfterRefresh = nil
+        }
         reconcileSelection(with: result.inventory.devices)
         if selectedDeviceID != nil {
           inspectSelectedDevice()
         }
+        if selectedSection == .applications, let selectedDeviceID {
+          loadApplications(for: selectedDeviceID, force: true)
+        }
       } catch is CancellationError {
+        guard requestGeneration == overviewRequestGeneration else { return }
         isLoadingOverview = false
       } catch {
+        guard requestGeneration == overviewRequestGeneration else { return }
         isLoadingOverview = false
         if overview == nil {
           loadError = error.localizedDescription
@@ -178,39 +214,164 @@ final class AppModel {
   }
 
   func selectionChanged() {
-    guard selectedDeviceID != nil else {
+    saveOptimizationDraft()
+
+    guard let selectedDeviceID else {
+      editingOptimizationDeviceID = nil
+      inspectionRequestGeneration &+= 1
       inspectionTask?.cancel()
+      inspectingDeviceID = nil
+      isLoadingSnapshot = false
+      snapshotLoadError = nil
       snapshot = nil
+      cancelApplicationLoading()
+      customServiceSnapshotTask?.cancel()
+      customServiceSnapshotTask = nil
       return
     }
-    if let rawValue = UserDefaults.standard.string(forKey: "defaultProfile"),
-      let profile = OptimizationProfile(rawValue: rawValue)
-    {
-      selectedProfile = profile
+    restoreOptimizationDraft(for: selectedDeviceID)
+    if applicationListState.deviceID != selectedDeviceID {
+      cancelApplicationLoading()
     }
-    customDisabledLabels.removeAll()
     selectedStorageCategoryIDs.removeAll()
     inspectSelectedDevice()
   }
 
-  func inspectSelectedDevice() {
+  private func saveOptimizationDraft() {
+    guard let editingOptimizationDeviceID else { return }
+    optimizationDrafts[editingOptimizationDeviceID] = OptimizationDraft(
+      profile: selectedProfile
+    )
+  }
+
+  private func restoreOptimizationDraft(for deviceID: SimulatorID) {
+    let draft =
+      optimizationDrafts[deviceID]
+      ?? OptimizationDraft(
+        profile: Self.storedDefaultProfile()
+      )
+    selectedProfile = draft.profile
+    editingOptimizationDeviceID = deviceID
+  }
+
+  private static func storedDefaultProfile() -> OptimizationProfile {
+    guard
+      let rawValue = UserDefaults.standard.string(forKey: "defaultProfile"),
+      let profile = OptimizationProfile(rawValue: rawValue)
+    else {
+      return .balanced
+    }
+    return profile
+  }
+
+  private static func storedCustomSelection() -> (
+    labels: Set<String>,
+    isInitialized: Bool
+  ) {
+    let defaults = UserDefaults.standard
+    guard defaults.object(forKey: customDisabledLabelsDefaultsKey) != nil else {
+      return ([], false)
+    }
+    return (
+      Set(defaults.stringArray(forKey: customDisabledLabelsDefaultsKey) ?? []),
+      true
+    )
+  }
+
+  private func persistCustomSelection() {
+    UserDefaults.standard.set(
+      customDisabledLabels.sorted(),
+      forKey: Self.customDisabledLabelsDefaultsKey
+    )
+    didInitializeCustomSelection = true
+  }
+
+  private func loadCustomServiceSnapshotForBatch() {
+    guard customServiceSnapshot == nil, customServiceSnapshotTask == nil else { return }
+    guard
+      let device = availableBatchDevices.first(where: {
+        batchSelectedDeviceIDs.contains($0.id)
+      }) ?? availableBatchDevices.first
+    else { return }
+
+    isLoadingCustomServiceSnapshot = true
+    customServiceSnapshotTask = Task { [weak self] in
+      guard let self else { return }
+      defer {
+        customServiceSnapshotTask = nil
+        isLoadingCustomServiceSnapshot = false
+      }
+      do {
+        let result = try await workspace.inspect(device.id)
+        guard !Task.isCancelled else { return }
+        cacheCustomServiceSnapshot(result)
+        initializeCustomSelectionIfNeeded(with: result)
+      } catch is CancellationError {
+        return
+      } catch {
+        return
+      }
+    }
+  }
+
+  private func cacheCustomServiceSnapshot(_ snapshot: DeviceSnapshot) {
+    guard snapshot.services.contains(where: \.isOptimizationCandidate) else { return }
+    customServiceSnapshot = snapshot
+  }
+
+  private func initializeCustomSelectionIfNeeded(with snapshot: DeviceSnapshot) {
+    guard !didInitializeCustomSelection else { return }
+    customDisabledLabels = Set(
+      snapshot.services
+        .filter(\.isOptimizationCandidate)
+        .filter(\.isDisabled)
+        .map(\.service.label)
+    )
+    persistCustomSelection()
+  }
+
+  func inspectSelectedDevice(force: Bool = false) {
     guard let id = selectedDeviceID else { return }
+    if !force, isLoadingSnapshot, inspectingDeviceID == id {
+      return
+    }
+
+    inspectionRequestGeneration &+= 1
+    let requestGeneration = inspectionRequestGeneration
     inspectionTask?.cancel()
+    inspectingDeviceID = id
     isLoadingSnapshot = true
+    snapshotLoadError = nil
 
     inspectionTask = Task { [weak self] in
       guard let self else { return }
       do {
         let result = try await workspace.inspect(id)
-        guard !Task.isCancelled, selectedDeviceID == id else { return }
+        guard
+          !Task.isCancelled,
+          requestGeneration == inspectionRequestGeneration,
+          selectedDeviceID == id
+        else { return }
         snapshot = result
+        cacheCustomServiceSnapshot(result)
         isLoadingSnapshot = false
+        inspectingDeviceID = nil
         synchronizeSelections(with: result)
       } catch is CancellationError {
-        if selectedDeviceID == id { isLoadingSnapshot = false }
-      } catch {
-        guard selectedDeviceID == id else { return }
+        guard
+          requestGeneration == inspectionRequestGeneration,
+          selectedDeviceID == id
+        else { return }
         isLoadingSnapshot = false
+        inspectingDeviceID = nil
+      } catch {
+        guard
+          requestGeneration == inspectionRequestGeneration,
+          selectedDeviceID == id
+        else { return }
+        isLoadingSnapshot = false
+        inspectingDeviceID = nil
+        snapshotLoadError = error.localizedDescription
         notice = AppNotice(
           title: L10n.text("error.inspect.title"),
           message: error.localizedDescription
@@ -219,20 +380,227 @@ final class AppModel {
     }
   }
 
+  func loadApplications(for deviceID: SimulatorID, force: Bool = false) {
+    guard
+      selectedDeviceID == deviceID,
+      selectedDevice?.state == .booted
+    else {
+      if applicationListState.deviceID == deviceID {
+        cancelApplicationLoading()
+      }
+      return
+    }
+
+    if !force, applicationListState.deviceID == deviceID {
+      switch applicationListState {
+      case .loading, .loaded, .failed:
+        return
+      case .idle:
+        break
+      }
+    }
+
+    applicationListRequestGeneration &+= 1
+    let requestGeneration = applicationListRequestGeneration
+    applicationListTask?.cancel()
+    applicationListState = .loading(deviceID: deviceID)
+
+    applicationListTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let snapshot = try await workspace.applications(for: deviceID)
+        guard
+          !Task.isCancelled,
+          requestGeneration == applicationListRequestGeneration,
+          selectedDeviceID == deviceID
+        else { return }
+        applicationListState = .loaded(
+          deviceID: deviceID,
+          snapshot: snapshot
+        )
+        applicationListTask = nil
+      } catch is CancellationError {
+        guard
+          requestGeneration == applicationListRequestGeneration,
+          selectedDeviceID == deviceID
+        else { return }
+        applicationListState = .idle
+        applicationListTask = nil
+      } catch {
+        guard
+          requestGeneration == applicationListRequestGeneration,
+          selectedDeviceID == deviceID
+        else { return }
+        applicationListState = .failed(
+          deviceID: deviceID,
+          message: error.localizedDescription
+        )
+        applicationListTask = nil
+      }
+    }
+  }
+
+  func openApplicationDataContainer(
+    _ application: SimulatorApplication,
+    deviceID: SimulatorID
+  ) {
+    guard
+      selectedDeviceID == deviceID,
+      selectedDevice?.state == .booted,
+      openingApplicationBundleID == nil
+    else { return }
+
+    applicationFolderTask?.cancel()
+    openingApplicationBundleID = application.bundleIdentifier
+    applicationFolderTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let folderURL = try await workspace.dataContainer(
+          for: deviceID,
+          bundleIdentifier: application.bundleIdentifier
+        )
+        guard
+          !Task.isCancelled,
+          selectedDeviceID == deviceID,
+          openingApplicationBundleID == application.bundleIdentifier
+        else { return }
+        openingApplicationBundleID = nil
+        applicationFolderTask = nil
+        guard let folderURL else {
+          notice = AppNotice(
+            title: L10n.text("applications.folder-unavailable.title"),
+            message: L10n.text("applications.folder-unavailable.message")
+          )
+          return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+      } catch is CancellationError {
+        guard openingApplicationBundleID == application.bundleIdentifier else { return }
+        openingApplicationBundleID = nil
+        applicationFolderTask = nil
+      } catch {
+        guard
+          selectedDeviceID == deviceID,
+          openingApplicationBundleID == application.bundleIdentifier
+        else { return }
+        openingApplicationBundleID = nil
+        applicationFolderTask = nil
+        notice = AppNotice(
+          title: L10n.text("applications.folder-unavailable.title"),
+          message: error.localizedDescription
+        )
+      }
+    }
+  }
+
+  private func cancelApplicationLoading() {
+    applicationListRequestGeneration &+= 1
+    applicationListTask?.cancel()
+    applicationListTask = nil
+    applicationFolderTask?.cancel()
+    applicationFolderTask = nil
+    openingApplicationBundleID = nil
+    applicationListState = .idle
+  }
+
   func selectDevice(_ deviceID: SimulatorID) {
     sidebarSelection = .device(deviceID)
   }
 
-  func showHistory() {
-    sidebarSelection = .history
-  }
-
   func showBatchOptimization() {
-    sidebarSelection = .batchOptimization
+    presentWorkspaceModal(.batchOptimization)
   }
 
   func showSettings() {
-    sidebarSelection = .settings
+    presentWorkspaceModal(.settings)
+  }
+
+  func showCreateSimulator() {
+    presentWorkspaceModal(.createSimulator)
+  }
+
+  func presentWorkspaceModal(_ modal: WorkspaceModal) {
+    WindowFocus.endTextEditing()
+    workspaceModal = modal
+    switch modal {
+    case .batchOptimization:
+      loadCustomServiceSnapshotForBatch()
+    case .createSimulator:
+      loadSimulatorCreationOptions()
+    case .settings:
+      break
+    }
+  }
+
+  func dismissWorkspaceModal() {
+    guard !isCreatingSimulator else { return }
+    WindowFocus.endTextEditing()
+    workspaceModal = nil
+  }
+
+  func loadSimulatorCreationOptions(force: Bool = false) {
+    guard !isLoadingSimulatorCreationOptions else { return }
+    if simulatorCreationOptions != nil, !force { return }
+
+    simulatorCreationOptionsTask?.cancel()
+    isLoadingSimulatorCreationOptions = true
+    simulatorCreationError = nil
+    simulatorCreationOptionsTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let options = try await workspace.simulatorCreationOptions()
+        guard !Task.isCancelled else { return }
+        simulatorCreationOptions = options
+        isLoadingSimulatorCreationOptions = false
+        simulatorCreationOptionsTask = nil
+      } catch is CancellationError {
+        isLoadingSimulatorCreationOptions = false
+        simulatorCreationOptionsTask = nil
+      } catch {
+        guard !Task.isCancelled else { return }
+        simulatorCreationError = error.localizedDescription
+        isLoadingSimulatorCreationOptions = false
+        simulatorCreationOptionsTask = nil
+      }
+    }
+  }
+
+  func createSimulator(
+    name: String,
+    runtimeID: String,
+    deviceTypeID: String
+  ) {
+    guard !isCreatingSimulator else { return }
+    isCreatingSimulator = true
+    simulatorCreationError = nil
+    simulatorCreationTask?.cancel()
+    simulatorCreationTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let deviceID = try await workspace.createSimulator(
+          SimulatorCreationRequest(
+            name: name,
+            deviceTypeID: deviceTypeID,
+            runtimeID: runtimeID
+          )
+        )
+        guard !Task.isCancelled else { return }
+        preferredDeviceIDAfterRefresh = deviceID
+        isCreatingSimulator = false
+        simulatorCreationTask = nil
+        workspaceModal = nil
+        toast = AppToast(message: L10n.formatted("create-simulator.success", name))
+        refreshOverview()
+      } catch is CancellationError {
+        isCreatingSimulator = false
+        simulatorCreationTask = nil
+      } catch {
+        guard !Task.isCancelled else { return }
+        simulatorCreationError = error.localizedDescription
+        isCreatingSimulator = false
+        simulatorCreationTask = nil
+      }
+    }
   }
 
   func toggleBatchDevice(_ deviceID: SimulatorID, selected: Bool) {
@@ -279,12 +647,17 @@ final class AppModel {
     guard !devices.isEmpty else { return }
 
     let profile = batchProfile
+    let customLabels = profile == .custom ? customDisabledLabels : []
     isPreparingBatchPreview = true
     batchPreviewCompletedCount = 0
     batchPreviewTotalCount = devices.count
     batchPreviewReservedDeviceIDs = Set(devices.map(\.id))
     batchPreviewTask = Task { [weak self] in
-      await self?.prepareBatchPreview(devices: devices, profile: profile)
+      await self?.prepareBatchPreview(
+        devices: devices,
+        profile: profile,
+        customDisabledLabels: customLabels
+      )
     }
   }
 
@@ -356,7 +729,7 @@ final class AppModel {
   }
 
   func isDeviceBusy(_ deviceID: SimulatorID) -> Bool {
-    if operations[deviceID]?.isRunning == true || operationTasks[deviceID] != nil {
+    if operations[deviceID]?.isRunning == true || activeOperationDeviceIDs.contains(deviceID) {
       return true
     }
     return isDeviceReservedByBatch(deviceID)
@@ -376,6 +749,11 @@ final class AppModel {
   func copy(_ string: String) {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(string, forType: .string)
+  }
+
+  func copyUDID(_ udid: String) {
+    copy(udid)
+    toast = AppToast(message: L10n.text("toast.udid-copied"))
   }
 
   func openXcode() {
@@ -512,10 +890,44 @@ final class AppModel {
     switch kind {
     case .boot: operation = .boot(deviceID: deviceID)
     case .shutdown: operation = .shutdown(deviceID: deviceID)
-    case .openSimulator: operation = .openSimulator(deviceID: deviceID)
-    default: return
+    case .preflight, .optimize, .verify, .restore, .scanStorage, .cleanStorage,
+      .erase, .delete, .clone, .openSimulator:
+      return
     }
     perform(operation)
+  }
+
+  func showSelectedSimulator() {
+    guard
+      let deviceID = selectedDeviceID,
+      selectedDevice?.state == .booted,
+      selectedDevice?.isAvailable == true,
+      !isDeviceBusy(deviceID),
+      showSimulatorTasks[deviceID] == nil
+    else { return }
+
+    activeOperationDeviceIDs.insert(deviceID)
+    showSimulatorTasks[deviceID] = Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await workspace.showSimulator(deviceID)
+        guard !Task.isCancelled else {
+          activeOperationDeviceIDs.remove(deviceID)
+          showSimulatorTasks[deviceID] = nil
+          return
+        }
+        toast = AppToast(message: L10n.text("toast.device-opened"))
+      } catch is CancellationError {
+        // 显示窗口属于瞬时操作，取消时无需额外提示。
+      } catch {
+        notice = AppNotice(
+          title: L10n.text("device.action-failed.title"),
+          message: error.localizedDescription
+        )
+      }
+      activeOperationDeviceIDs.remove(deviceID)
+      showSimulatorTasks[deviceID] = nil
+    }
   }
 
   func requestDanger(_ kind: DangerPresentation.Kind) {
@@ -555,6 +967,17 @@ final class AppModel {
     } else {
       customDisabledLabels.remove(label)
     }
+    persistCustomSelection()
+  }
+
+  func setCustomServices(_ labels: Set<String>, disabled: Bool) {
+    guard !labels.isEmpty else { return }
+    if disabled {
+      customDisabledLabels.formUnion(labels)
+    } else {
+      customDisabledLabels.subtract(labels)
+    }
+    persistCustomSelection()
   }
 
   func toggleStorageCategory(_ id: String, selected: Bool) {
@@ -578,53 +1001,10 @@ final class AppModel {
     operationTasks[deviceID]?.cancel()
   }
 
-  func showReceipt(_ receipt: OperationReceipt) {
-    receiptPresentation = receipt
-  }
-
-  func canContinueVerification(from receipt: OperationReceipt) -> Bool {
-    let pendingReceiptIDs = Set(overview?.pendingReceipts.map(\.id) ?? [])
-    return receipt.schemaVersion == 1
-      && receipt.kind == .optimize
-      && receipt.opaquePayload == nil
-      && optimizationSupport(for: receipt.deviceID) == .supported
-      && !isDeviceBusy(receipt.deviceID)
-      && (pendingReceiptIDs.contains(receipt.id) || receipt.pendingChange != nil)
-  }
-
-  func canRestore(from receipt: OperationReceipt) -> Bool {
-    receipt.schemaVersion == 1
-      && receipt.kind == .optimize
-      && receipt.opaquePayload == nil
-      && optimizationSupport(for: receipt.deviceID) == .supported
-      && receipt.baselineCapturedAt != nil
-      && !isDeviceBusy(receipt.deviceID)
-      && (receipt.pendingChange != nil || receipt.appliedChanges.contains(where: \.succeeded))
-  }
-
-  func continueVerification(from receipt: OperationReceipt) {
-    guard canContinueVerification(from: receipt) else { return }
-    sidebarSelection = .device(receipt.deviceID)
-    selectedSection = .optimization
-    preparePreview(
-      .verify(deviceID: receipt.deviceID, receiptID: receipt.id),
-      confirmsExecution: true
-    )
-  }
-
-  func restore(from receipt: OperationReceipt) {
-    guard canRestore(from: receipt) else { return }
-    sidebarSelection = .device(receipt.deviceID)
-    selectedSection = .optimization
-    preparePreview(
-      .restore(deviceID: receipt.deviceID, receiptID: receipt.id),
-      confirmsExecution: true
-    )
-  }
-
   private func prepareBatchPreview(
     devices: [SimulatorDevice],
-    profile: OptimizationProfile
+    profile: OptimizationProfile,
+    customDisabledLabels: Set<String>
   ) async {
     var items: [BatchPreviewItem] = []
     items.reserveCapacity(devices.count)
@@ -640,7 +1020,7 @@ final class AppModel {
       let operation = SimulatorOperation.optimize(
         deviceID: device.id,
         profile: profile,
-        customDisabledLabels: []
+        customDisabledLabels: customDisabledLabels
       )
       if operations[device.id]?.isRunning == true || operationTasks[device.id] != nil {
         items.append(
@@ -902,6 +1282,7 @@ final class AppModel {
     }
 
     operations[deviceID] = PresentedOperation(operation: operation)
+    activeOperationDeviceIDs.insert(deviceID)
     let task = Task { [weak self] in
       guard let self else { return }
       do {
@@ -915,8 +1296,16 @@ final class AppModel {
         markFailed(deviceID, message: error.localizedDescription)
       }
 
-      operationTasks[deviceID] = nil
       await refreshAfterOperation(deviceID)
+      operationTasks[deviceID] = nil
+      activeOperationDeviceIDs.remove(deviceID)
+
+      if let receipt = operations[deviceID]?.receipt,
+        receipt.status == .succeeded,
+        let message = deviceSuccessToastMessage(for: receipt.kind)
+      {
+        toast = AppToast(message: message)
+      }
     }
     operationTasks[deviceID] = task
   }
@@ -929,10 +1318,26 @@ final class AppModel {
     if let receipt = event.receipt {
       presentation.receipt = receipt
     }
-    if event.state == .failed {
+    if event.isTerminal && event.state == .failed {
       presentation.failureMessage = event.message
     }
     operations[event.deviceID] = presentation
+  }
+
+  private func deviceSuccessToastMessage(for kind: OperationKind) -> String? {
+    switch kind {
+    case .boot:
+      L10n.text("toast.device-booted")
+    case .shutdown:
+      L10n.text("toast.device-shutdown")
+    case .openSimulator:
+      L10n.text("toast.device-opened")
+    case .delete:
+      L10n.text("toast.device-deleted")
+    case .preflight, .optimize, .verify, .restore, .scanStorage, .cleanStorage,
+      .erase, .clone:
+      nil
+    }
   }
 
   private func markCancelled(_ deviceID: SimulatorID) {
@@ -945,24 +1350,46 @@ final class AppModel {
     guard var presentation = operations[deviceID] else { return }
     presentation.failureMessage = message
     operations[deviceID] = presentation
+    switch presentation.operation.kind {
+    case .boot, .shutdown, .openSimulator:
+      notice = AppNotice(
+        title: L10n.text("device.action-failed.title"),
+        message: message
+      )
+    case .preflight, .optimize, .verify, .restore, .scanStorage, .cleanStorage,
+      .erase, .delete, .clone:
+      break
+    }
   }
 
   private func refreshAfterOperation(_ deviceID: SimulatorID) async {
+    overviewRequestGeneration &+= 1
+    let requestGeneration = overviewRequestGeneration
+    overviewTask?.cancel()
+    isLoadingOverview = true
+
     do {
       let result = try await workspace.overview()
+      guard requestGeneration == overviewRequestGeneration else { return }
       overview = result
+      isLoadingOverview = false
       synchronizeBatchSelection(with: result.inventory.devices)
       if selectedDeviceID == deviceID,
         result.inventory.devices.contains(where: { $0.id == deviceID })
       {
-        let updatedSnapshot = try await workspace.inspect(deviceID)
-        snapshot = updatedSnapshot
-        synchronizeSelections(with: updatedSnapshot)
+        inspectSelectedDevice(force: true)
+        let currentInspection = inspectionTask
+        await currentInspection?.value
       } else if selectedDeviceID == deviceID {
         snapshot = nil
         reconcileSelection(with: result.inventory.devices)
+        if selectedDeviceID != nil {
+          inspectSelectedDevice(force: true)
+        }
       }
     } catch {
+      guard requestGeneration == overviewRequestGeneration else { return }
+      isLoadingOverview = false
       notice = AppNotice(
         title: L10n.text("error.verify-refresh.title"),
         message: error.localizedDescription
@@ -971,15 +1398,6 @@ final class AppModel {
   }
 
   private func reconcileSelection(with devices: [SimulatorDevice]) {
-    if let sidebarSelection {
-      switch sidebarSelection {
-      case .batchOptimization, .history, .settings:
-        return
-      case .device:
-        break
-      }
-    }
-
     if let selectedDeviceID,
       devices.contains(where: { $0.id == selectedDeviceID && $0.isAvailable })
     {
@@ -1029,18 +1447,7 @@ final class AppModel {
   }
 
   private func synchronizeSelections(with snapshot: DeviceSnapshot) {
-    let selectableLabels = Set(
-      snapshot.services
-        .filter { $0.isPresent && !$0.service.alwaysEnabled && $0.service.risk != .protected }
-        .filter(\.isDisabled)
-        .map(\.service.label)
-    )
-    if customDisabledLabels.isEmpty {
-      customDisabledLabels = selectableLabels
-    } else {
-      let validLabels = Set(snapshot.services.map(\.service.label))
-      customDisabledLabels.formIntersection(validLabels)
-    }
+    initializeCustomSelectionIfNeeded(with: snapshot)
 
     if let plan = snapshot.latestStoragePlan {
       let valid = Set(plan.categories.filter(\.canClean).map(\.id))

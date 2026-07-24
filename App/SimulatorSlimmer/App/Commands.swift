@@ -4,37 +4,28 @@ struct SimulatorSlimmerCommands: Commands {
   let model: AppModel
 
   var body: some Commands {
-    if !allowsAdditionalWindow {
-      CommandGroup(replacing: .newItem) {}
+    CommandGroup(replacing: .newItem) {
+      Button("command.create-simulator") {
+        model.showCreateSimulator()
+      }
+      .keyboardShortcut("n", modifiers: .command)
     }
 
     CommandGroup(after: .sidebar) {
       Button("command.refresh") {
+        WindowFocus.endTextEditing()
         model.refreshOverview()
       }
       .keyboardShortcut("r", modifiers: .command)
-
-      Divider()
-
-      Button("command.history") {
-        model.showHistory()
-      }
-      .keyboardShortcut("y", modifiers: [.command, .shift])
+      .disabled(model.isLoadingOverview)
     }
 
     CommandGroup(replacing: .appSettings) {
       Button("command.settings") {
+        WindowFocus.endTextEditing()
         model.showSettings()
       }
       .keyboardShortcut(",", modifiers: .command)
     }
-  }
-
-  private var allowsAdditionalWindow: Bool {
-    #if DEBUG
-      ProcessInfo.processInfo.arguments.contains("--ui-testing")
-    #else
-      false
-    #endif
   }
 }

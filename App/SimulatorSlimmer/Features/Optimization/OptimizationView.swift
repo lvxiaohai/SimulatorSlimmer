@@ -5,23 +5,23 @@ struct OptimizationView: View {
   let snapshot: DeviceSnapshot
   @Bindable var model: AppModel
 
-  private var presentServices: [ServiceState] {
-    snapshot.services.filter(\.isPresent)
+  private var optimizationServices: [ServiceState] {
+    snapshot.services.filter(\.isOptimizationCandidate)
+  }
+
+  private var optimizationServiceLabels: Set<String> {
+    Set(optimizationServices.map(\.service.label))
   }
 
   private var disabledServiceCount: Int {
-    presentServices.filter(\.isDisabled).count
+    optimizationServices.filter(\.isDisabled).count
   }
 
   private var effectiveChanges: [ServiceChange] {
     if model.selectedProfile == .custom {
-      return presentServices.compactMap { state in
+      return optimizationServices.compactMap { state in
         let shouldDisable = model.customDisabledLabels.contains(state.service.label)
-        guard
-          !state.service.alwaysEnabled,
-          state.service.risk != .protected,
-          state.isDisabled != shouldDisable
-        else { return nil }
+        guard state.isDisabled != shouldDisable else { return nil }
         return ServiceChange(
           label: state.service.label,
           serviceName: state.service.name,
@@ -34,12 +34,14 @@ struct OptimizationView: View {
         )
       }
     }
-    return snapshot.plans[model.selectedProfile]?.changes ?? []
+    return (snapshot.plans[model.selectedProfile]?.changes ?? []).filter {
+      optimizationServiceLabels.contains($0.label)
+    }
   }
 
   var body: some View {
     ScrollView {
-      LazyVStack(alignment: .leading, spacing: 20) {
+      LazyVStack(alignment: .leading, spacing: 16) {
         operationState
         metrics
         profilePanel
@@ -54,17 +56,16 @@ struct OptimizationView: View {
 
   @ViewBuilder
   private var operationState: some View {
-    if let operation = model.operations[snapshot.device.id] {
+    if let operation = model.operations[snapshot.device.id],
+      isOptimizationOperation(operation.operation.kind)
+    {
       if operation.isRunning {
         OperationProgressPanel(
           presentation: operation,
           stop: model.requestStop
         )
       } else if let receipt = operation.receipt {
-        ReceiptResultBanner(
-          receipt: receipt,
-          showReceipt: { model.showReceipt(receipt) }
-        )
+        OperationResultBanner(receipt: receipt)
       } else if let failure = operation.failureMessage {
         NoticeStrip(
           tone: .error,
@@ -74,45 +75,60 @@ struct OptimizationView: View {
           action: model.runOptimization
         )
       }
-    } else if let pending = model.overview?.pendingReceipts.first(where: {
-      $0.deviceID == snapshot.device.id
-    }) {
-      NoticeStrip(
-        tone: .warning,
-        title: L10n.text("pending-receipt.title"),
-        message: L10n.text("pending-receipt.message"),
-        actionTitle: L10n.text("receipt.view"),
-        action: { model.showReceipt(pending) }
-      )
+    }
+  }
+
+  private func isOptimizationOperation(_ kind: OperationKind) -> Bool {
+    switch kind {
+    case .preflight, .optimize, .verify, .restore:
+      true
+    case .scanStorage, .cleanStorage, .boot, .shutdown, .erase, .delete, .clone,
+      .openSimulator:
+      false
     }
   }
 
   private var metrics: some View {
-    HStack(spacing: 16) {
-      MetricCard(
-        eyebrow: "metric.memory",
-        value: snapshot.memory.map { ValueFormatter.bytes($0.bytes) }
-          ?? L10n.text("metric.unavailable"),
-        unitDetail: memoryDetail,
-        symbol: "memorychip",
-        tint: .mint
-      )
-
-      MetricCard(
-        eyebrow: "metric.services",
-        value: L10n.formatted("format.items", disabledServiceCount),
-        unitDetail: L10n.formatted(
-          "metric.services.detail",
-          effectiveChanges.count,
-          presentServices.count
-        ),
-        symbol: "switch.2",
-        tint: effectiveChanges.isEmpty ? .mint : .orange,
-        progress: presentServices.isEmpty
-          ? 0
-          : Double(disabledServiceCount) / Double(presentServices.count)
-      )
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 14) {
+        memoryMetric
+          .frame(minWidth: 230)
+        servicesMetric
+          .frame(minWidth: 230)
+      }
+      VStack(spacing: 12) {
+        memoryMetric
+        servicesMetric
+      }
     }
+  }
+
+  private var memoryMetric: some View {
+    MetricCard(
+      eyebrow: "metric.memory",
+      value: snapshot.memory.map { ValueFormatter.bytes($0.bytes) }
+        ?? L10n.text("metric.unavailable"),
+      unitDetail: memoryDetail,
+      symbol: "memorychip",
+      tint: .mint
+    )
+  }
+
+  private var servicesMetric: some View {
+    MetricCard(
+      eyebrow: "metric.services",
+      value: L10n.formatted("format.items", disabledServiceCount),
+      unitDetail: L10n.formatted(
+        "metric.services.detail",
+        effectiveChanges.count,
+        optimizationServices.count
+      ),
+      symbol: "switch.2",
+      tint: effectiveChanges.isEmpty ? .mint : .orange,
+      progress: optimizationServices.isEmpty
+        ? 0
+        : Double(disabledServiceCount) / Double(optimizationServices.count)
+    )
   }
 
   private var memoryDetail: String {
@@ -144,6 +160,7 @@ struct OptimizationView: View {
         .pickerStyle(.segmented)
         .labelsHidden()
         .frame(minHeight: InstrumentTheme.minimumHitSize)
+        .disabled(isBusy)
         .accessibilityLabel("optimization.profile.title")
 
         HStack(alignment: .top, spacing: 10) {
@@ -163,6 +180,7 @@ struct OptimizationView: View {
         if model.selectedProfile == .custom {
           Divider()
           CustomServicePicker(snapshot: snapshot, model: model)
+            .disabled(isBusy)
         }
       }
     }
@@ -197,58 +215,63 @@ struct OptimizationView: View {
 
         Divider()
 
-        HStack(spacing: 10) {
-          if let latestReceipt = model.latestVerifiableReceipt {
-            Button {
-              model.continueLatestVerification()
-            } label: {
-              Label("action.continue-verification", systemImage: "checkmark.magnifyingglass")
+        ViewThatFits(in: .horizontal) {
+          HStack(spacing: 10) {
+            continuationAction
+            Spacer()
+            previewAction
+            optimizeAction
+          }
+          VStack(alignment: .trailing, spacing: 4) {
+            continuationAction
+              .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 10) {
+              Spacer()
+              previewAction
+              optimizeAction
             }
-            .disabled(isBusy)
-            .minimumHitArea()
-            .accessibilityHint(
-              L10n.formatted(
-                "action.continue-verification.hint",
-                latestReceipt.startedAt.formatted(date: .abbreviated, time: .shortened)
-              )
-            )
           }
-
-          if let latestReceipt = model.latestRestorableReceipt {
-            Button {
-              model.restoreLatest()
-            } label: {
-              Label("action.restore-last", systemImage: "arrow.uturn.backward")
-            }
-            .disabled(isBusy)
-            .minimumHitArea()
-            .accessibilityHint(
-              L10n.formatted(
-                "action.restore-last.hint",
-                latestReceipt.startedAt.formatted(date: .abbreviated, time: .shortened)
-              )
-            )
-          }
-
-          Spacer()
-
-          Button("action.preview-changes") {
-            model.requestOptimizationPreview()
-          }
-          .disabled(effectiveChanges.isEmpty || isBusy)
-          .minimumHitArea()
-
-          Button {
-            model.runOptimization()
-          } label: {
-            Label("action.optimize-device", systemImage: "gauge.with.dots.needle.50percent")
-          }
-          .buttonStyle(PressablePrimaryButtonStyle())
-          .disabled(effectiveChanges.isEmpty || isBusy || !snapshot.device.isAvailable)
-          .accessibilityHint("action.optimize-device.hint")
         }
       }
     }
+  }
+
+  @ViewBuilder
+  private var continuationAction: some View {
+    if let latestReceipt = model.latestVerifiableReceipt {
+      Button {
+        model.continueLatestVerification()
+      } label: {
+        Label("action.continue-verification", systemImage: "checkmark.magnifyingglass")
+      }
+      .disabled(isBusy)
+      .minimumHitArea()
+      .accessibilityHint(
+        L10n.formatted(
+          "action.continue-verification.hint",
+          latestReceipt.startedAt.formatted(date: .abbreviated, time: .shortened)
+        )
+      )
+    }
+  }
+
+  private var previewAction: some View {
+    Button("action.preview-changes") {
+      model.requestOptimizationPreview()
+    }
+    .disabled(effectiveChanges.isEmpty || isBusy)
+    .minimumHitArea()
+  }
+
+  private var optimizeAction: some View {
+    Button {
+      model.runOptimization()
+    } label: {
+      Label("action.optimize-device", systemImage: "gauge.with.dots.needle.50percent")
+    }
+    .buttonStyle(PressablePrimaryButtonStyle())
+    .disabled(effectiveChanges.isEmpty || isBusy || !snapshot.device.isAvailable)
+    .accessibilityHint("action.optimize-device.hint")
   }
 
   private var isBusy: Bool {
@@ -256,7 +279,7 @@ struct OptimizationView: View {
   }
 }
 
-private struct CustomServicePicker: View {
+struct CustomServicePicker: View {
   let snapshot: DeviceSnapshot
   let model: AppModel
   @State private var expandedCategories: Set<String> = []
@@ -264,21 +287,47 @@ private struct CustomServicePicker: View {
   private var categoryServices: [(ServiceCategory, [ServiceState])] {
     snapshot.categories.compactMap { category in
       let services = snapshot.services
-        .filter { $0.isPresent && $0.service.categoryID == category.id }
+        .filter { $0.isOptimizationCandidate && $0.service.categoryID == category.id }
         .sorted { $0.service.name.localizedStandardCompare($1.service.name) == .orderedAscending }
       return services.isEmpty ? nil : (category, services)
     }
   }
 
+  private var visibleSelectedCount: Int {
+    return model.customDisabledLabels.intersection(visibleLabels).count
+  }
+
+  private var visibleLabels: Set<String> {
+    Set(
+      categoryServices.flatMap { _, services in
+        services.map(\.service.label)
+      }
+    )
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      HStack {
+      HStack(spacing: 8) {
         Text("custom-services.title")
           .font(.subheadline.weight(.semibold))
         Spacer()
-        Text(L10n.formatted("format.selected-items", model.customDisabledLabels.count))
+        Text(L10n.formatted("format.selected-items", visibleSelectedCount))
           .font(.caption.monospacedDigit())
           .foregroundStyle(.secondary)
+        Button("custom-services.action.select-all") {
+          model.setCustomServices(visibleLabels, disabled: true)
+        }
+        .buttonStyle(.borderless)
+        .minimumHitArea()
+        .disabled(visibleSelectedCount == visibleLabels.count)
+        .accessibilityIdentifier("custom-services.select-all")
+        Button("custom-services.action.clear") {
+          model.setCustomServices(visibleLabels, disabled: false)
+        }
+        .buttonStyle(.borderless)
+        .minimumHitArea()
+        .disabled(visibleSelectedCount == 0)
+        .accessibilityIdentifier("custom-services.clear")
       }
 
       ForEach(categoryServices, id: \.0.id) { category, services in
@@ -295,6 +344,12 @@ private struct CustomServicePicker: View {
           )
         ) {
           VStack(spacing: 0) {
+            CustomServiceGroupActions(
+              services: services,
+              model: model,
+              categoryID: category.id
+            )
+            Divider()
             ForEach(services) { state in
               CustomServiceRow(state: state, model: model)
               if state.id != services.last?.id { Divider() }
@@ -314,14 +369,83 @@ private struct CustomServicePicker: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(L10n.formatted("format.items", services.count))
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(.secondary)
+            categoryStatusSummary(for: services)
           }
           .frame(minHeight: 40)
         }
+        .disclosureGroupStyle(InstrumentDisclosureGroupStyle())
       }
     }
+  }
+
+  private func categoryStatusSummary(for services: [ServiceState]) -> some View {
+    let disabledCount = services.count {
+      model.customDisabledLabels.contains($0.service.label)
+    }
+
+    return Text(
+      L10n.formatted(
+        "format.disabled-ratio",
+        disabledCount,
+        services.count
+      )
+    )
+    .font(.caption.monospacedDigit())
+    .foregroundStyle(.secondary)
+    .lineLimit(1)
+    .layoutPriority(1)
+    .accessibilityLabel(
+      L10n.formatted(
+        "format.disabled-ratio.accessibility",
+        disabledCount,
+        services.count
+      )
+    )
+    .help(
+      L10n.formatted(
+        "format.disabled-ratio.accessibility",
+        disabledCount,
+        services.count
+      )
+    )
+  }
+}
+
+private struct CustomServiceGroupActions: View {
+  let services: [ServiceState]
+  let model: AppModel
+  let categoryID: String
+
+  private var labels: Set<String> {
+    Set(services.map(\.service.label))
+  }
+
+  private var selectedCount: Int {
+    model.customDisabledLabels.intersection(labels).count
+  }
+
+  var body: some View {
+    HStack(spacing: 8) {
+      Text("custom-services.group-actions")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      Spacer()
+      Button("custom-services.action.select-all") {
+        model.setCustomServices(labels, disabled: true)
+      }
+      .buttonStyle(.borderless)
+      .minimumHitArea()
+      .disabled(selectedCount == labels.count)
+      .accessibilityIdentifier("custom-services.group.\(categoryID).select-all")
+      Button("custom-services.action.clear") {
+        model.setCustomServices(labels, disabled: false)
+      }
+      .buttonStyle(.borderless)
+      .minimumHitArea()
+      .disabled(selectedCount == 0)
+      .accessibilityIdentifier("custom-services.group.\(categoryID).clear")
+    }
+    .frame(minHeight: InstrumentTheme.minimumHitSize)
   }
 }
 
@@ -425,6 +549,7 @@ private struct ChangePlanList: View {
           }
           .frame(minHeight: 40)
         }
+        .disclosureGroupStyle(InstrumentDisclosureGroupStyle())
       }
     }
   }

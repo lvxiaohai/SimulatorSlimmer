@@ -1,3 +1,4 @@
+import AppKit
 import SimulatorSlimmerCore
 import SwiftUI
 
@@ -13,15 +14,21 @@ struct InstrumentCard<Content: View>: View {
   var body: some View {
     content
       .padding(InstrumentTheme.cardPadding)
-      .background(.regularMaterial, in: cardShape)
+      .background(
+        Color.instrumentRaised.opacity(colorScheme == .dark ? 0.62 : 0.72),
+        in: cardShape
+      )
       .overlay {
         cardShape.stroke(
           outlineColor,
-          lineWidth: colorSchemeContrast == .increased ? 1 : 0.5
+          lineWidth: colorSchemeContrast == .increased ? 1 : 0
         )
       }
-      .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
-      .shadow(color: .black.opacity(0.045), radius: 8, y: 3)
+      .shadow(
+        color: colorScheme == .dark ? .white.opacity(0.055) : .black.opacity(0.07),
+        radius: 0.6
+      )
+      .shadow(color: .black.opacity(colorScheme == .dark ? 0.18 : 0.05), radius: 7, y: 3)
   }
 
   private var cardShape: RoundedRectangle {
@@ -30,9 +37,168 @@ struct InstrumentCard<Content: View>: View {
 
   private var outlineColor: Color {
     if colorScheme == .dark {
-      return .white.opacity(colorSchemeContrast == .increased ? 0.16 : 0.08)
+      return .white.opacity(0.16)
     }
-    return .black.opacity(colorSchemeContrast == .increased ? 0.13 : 0.06)
+    return .black.opacity(0.13)
+  }
+}
+
+struct InstrumentPageScroll<Content: View>: View {
+  let alignment: HorizontalAlignment
+  let spacing: CGFloat
+  @ViewBuilder let content: () -> Content
+
+  init(
+    alignment: HorizontalAlignment = .leading,
+    spacing: CGFloat = 16,
+    @ViewBuilder content: @escaping () -> Content
+  ) {
+    self.alignment = alignment
+    self.spacing = spacing
+    self.content = content
+  }
+
+  var body: some View {
+    ScrollView {
+      LazyVStack(alignment: alignment, spacing: spacing) {
+        content()
+      }
+      .padding(.horizontal, InstrumentTheme.pagePadding)
+      .padding(.bottom, InstrumentTheme.pagePadding)
+    }
+    .scrollBounceBehavior(.basedOnSize)
+  }
+}
+
+struct InstrumentEmptyState<Action: View>: View {
+  let symbol: String
+  let badgeSymbol: String?
+  let tint: Color
+  let title: String
+  let message: String
+  @ViewBuilder let action: () -> Action
+
+  init(
+    symbol: String,
+    badgeSymbol: String? = nil,
+    tint: Color,
+    title: String,
+    message: String,
+    @ViewBuilder action: @escaping () -> Action
+  ) {
+    self.symbol = symbol
+    self.badgeSymbol = badgeSymbol
+    self.tint = tint
+    self.title = title
+    self.message = message
+    self.action = action
+  }
+
+  var body: some View {
+    InstrumentCard {
+      VStack(spacing: 14) {
+        icon
+
+        VStack(spacing: 5) {
+          Text(title)
+            .font(.title3.weight(.semibold))
+            .multilineTextAlignment(.center)
+          Text(message)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 380)
+
+        action()
+      }
+      .frame(maxWidth: .infinity)
+      .padding(.vertical, 10)
+    }
+    .frame(maxWidth: 440)
+  }
+
+  private var icon: some View {
+    ZStack {
+      Circle()
+        .fill(tint.opacity(0.10))
+      Image(systemName: symbol)
+        .symbolRenderingMode(.hierarchical)
+        .font(.system(size: 25, weight: .medium))
+        .foregroundStyle(tint)
+    }
+    .frame(width: 58, height: 58)
+    .overlay(alignment: .bottomTrailing) {
+      if let badgeSymbol {
+        Image(systemName: badgeSymbol)
+          .font(.system(size: 9, weight: .bold))
+          .foregroundStyle(.white)
+          .frame(width: 20, height: 20)
+          .background(tint.gradient, in: Circle())
+          .offset(x: 2, y: 2)
+      }
+    }
+    .accessibilityHidden(true)
+  }
+}
+
+struct InstrumentSelectionBackground: View {
+  let isSelected: Bool
+  let isHovered: Bool
+
+  var body: some View {
+    RoundedRectangle(cornerRadius: 10, style: .continuous)
+      .fill(backgroundColor)
+      .overlay(alignment: .leading) {
+        if isSelected {
+          Capsule()
+            .fill(Color.accentColor)
+            .frame(width: 3, height: 26)
+            .padding(.leading, 3)
+            .transition(.opacity)
+        }
+      }
+  }
+
+  private var backgroundColor: Color {
+    if isSelected {
+      return Color.accentColor.opacity(0.10)
+    }
+    if isHovered {
+      return Color.primary.opacity(0.045)
+    }
+    return .clear
+  }
+}
+
+struct InstrumentToast: View {
+  let message: String
+
+  var body: some View {
+    Label {
+      Text(message)
+        .font(.callout.weight(.medium))
+    } icon: {
+      Image(systemName: "checkmark.circle.fill")
+        .foregroundStyle(.mint)
+    }
+    .padding(.horizontal, 14)
+    .frame(minHeight: InstrumentTheme.minimumHitSize)
+    .background(.regularMaterial, in: Capsule())
+    .shadow(color: .black.opacity(0.1), radius: 10, y: 4)
+    .fixedSize()
+    .accessibilityElement(children: .combine)
+    .onAppear {
+      NSAccessibility.post(
+        element: NSApp as Any,
+        notification: .announcementRequested,
+        userInfo: [
+          .announcement: message,
+          .priority: NSAccessibilityPriorityLevel.high.rawValue,
+        ]
+      )
+    }
   }
 }
 
@@ -86,11 +252,11 @@ struct MetricCard: View {
         }
 
         Text(value)
-          .font(.system(size: 30, weight: .semibold, design: .rounded))
+          .font(.title.weight(.semibold))
+          .fontDesign(.rounded)
           .monospacedDigit()
           .contentTransition(.numericText())
-          .lineLimit(1)
-          .minimumScaleFactor(0.8)
+          .lineLimit(2)
 
         HStack(spacing: 8) {
           if let progress {
@@ -109,7 +275,7 @@ struct MetricCard: View {
           Text(unitDetail)
             .font(.caption)
             .foregroundStyle(.secondary)
-            .lineLimit(1)
+            .lineLimit(2)
         }
       }
     }
@@ -188,16 +354,46 @@ struct NoticeStrip: View {
   var message: String?
   var actionTitle: String?
   var action: (() -> Void)?
+  var actionSymbol: String?
 
   var body: some View {
-    HStack(alignment: .top, spacing: 12) {
-      Image(systemName: tone.symbol)
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(tone.tint)
-        .padding(.top, 1)
-        .accessibilityHidden(true)
+    HStack(alignment: .center, spacing: 12) {
+      noticeContent
 
-      VStack(alignment: .leading, spacing: 3) {
+      if let actionTitle, let action {
+        Button(action: action) {
+          if let actionSymbol {
+            Label(actionTitle, systemImage: actionSymbol)
+          } else {
+            Text(actionTitle)
+          }
+        }
+        .font(.caption.weight(.semibold))
+        .controlSize(.small)
+        .buttonStyle(.bordered)
+        .tint(tone.tint)
+        .minimumHitArea()
+        .fixedSize()
+      }
+    }
+    .padding(12)
+    .background(tone.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    .accessibilityElement(children: .contain)
+  }
+
+  private var noticeContent: some View {
+    HStack(alignment: message == nil ? .center : .top, spacing: 10) {
+      ZStack {
+        Circle()
+          .fill(tone.tint.opacity(0.12))
+        Image(systemName: tone.symbol)
+          .font(.system(size: 14, weight: .semibold))
+          .foregroundStyle(tone.tint)
+      }
+      .frame(width: 30, height: 30)
+      .accessibilityHidden(true)
+
+      VStack(alignment: .leading, spacing: 4) {
         Text(title)
           .font(.subheadline.weight(.semibold))
         if let message {
@@ -207,24 +403,13 @@ struct NoticeStrip: View {
             .fixedSize(horizontal: false, vertical: true)
         }
       }
-
-      Spacer(minLength: 12)
-
-      if let actionTitle, let action {
-        Button(actionTitle, action: action)
-          .buttonStyle(.borderless)
-          .minimumHitArea()
-      }
     }
-    .padding(12)
-    .background(tone.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-    .accessibilityElement(children: .contain)
+    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 
-struct ReceiptResultBanner: View {
+struct OperationResultBanner: View {
   let receipt: OperationReceipt
-  let showReceipt: () -> Void
 
   private var tone: NoticeStrip.Tone {
     switch receipt.status {
@@ -240,9 +425,7 @@ struct ReceiptResultBanner: View {
       NoticeStrip(
         tone: tone,
         title: receipt.status.localizedTitle,
-        message: resultMessage,
-        actionTitle: L10n.text("receipt.view"),
-        action: showReceipt
+        message: resultMessage
       )
 
       if receipt.kind == .optimize,
@@ -357,9 +540,14 @@ struct OperationProgressPanel: View {
   @ViewBuilder
   private var phaseRows: some View {
     let phases = visiblePhases
+    let timeline = OperationPhaseTimeline(
+      phases: phases,
+      events: presentation.events,
+      phaseAliases: phaseAliases
+    )
     VStack(alignment: .leading, spacing: 10) {
       ForEach(phases, id: \.self) { phase in
-        let state = phaseState(phase)
+        let state = phaseState(phase, timeline: timeline)
         HStack(spacing: 10) {
           Image(systemName: state.symbol)
             .foregroundStyle(state.tint)
@@ -382,6 +570,8 @@ struct OperationProgressPanel: View {
           }
         }
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("operation.progress.phase.\(phase.rawValue)")
+        .accessibilityValue(state.label)
       }
     }
   }
@@ -403,45 +593,74 @@ struct OperationProgressPanel: View {
     }
   }
 
-  private func phaseState(_ phase: OperationPhase) -> PhaseAppearance {
-    if let event = presentation.events.last(where: { $0.phase == phase }) {
-      switch event.state {
-      case .running:
-        return PhaseAppearance(
-          symbol: "circle.dotted",
-          tint: .mint,
-          label: L10n.text("progress.running"),
-          isWaiting: false
-        )
-      case .succeeded:
-        return PhaseAppearance(
-          symbol: "checkmark.circle.fill",
-          tint: .mint,
-          label: L10n.text("progress.completed"),
-          isWaiting: false
-        )
-      case .warning:
-        return PhaseAppearance(
-          symbol: "exclamationmark.circle.fill",
-          tint: .orange,
-          label: L10n.text("progress.warning"),
-          isWaiting: false
-        )
-      case .failed:
-        return PhaseAppearance(
-          symbol: "xmark.circle.fill",
-          tint: .red,
-          label: L10n.text("progress.failed"),
-          isWaiting: false
-        )
-      }
+  private var phaseAliases: [OperationPhase: OperationPhase] {
+    switch operationKind {
+    case .optimize, .restore:
+      [
+        .measuringBefore: .preparing,
+        .measuringAfter: .verifying,
+        .finalizing: .verifying,
+      ]
+    case .verify:
+      [
+        .preparing: .preflight,
+        .measuringAfter: .verifying,
+        .finalizing: .verifying,
+      ]
+    case .preflight, .scanStorage, .cleanStorage, .boot, .shutdown, .erase, .delete, .clone,
+      .openSimulator:
+      [:]
     }
-    return PhaseAppearance(
-      symbol: "circle",
-      tint: .secondary,
-      label: L10n.text("progress.waiting"),
-      isWaiting: true
-    )
+  }
+
+  private func phaseState(
+    _ phase: OperationPhase,
+    timeline: OperationPhaseTimeline
+  ) -> PhaseAppearance {
+    switch timeline.state(for: phase) {
+    case .waiting:
+      PhaseAppearance(
+        symbol: "circle",
+        tint: .secondary,
+        label: L10n.text("progress.waiting"),
+        isWaiting: true
+      )
+    case .running:
+      PhaseAppearance(
+        symbol: "circle.dotted",
+        tint: .mint,
+        label: L10n.text("progress.running"),
+        isWaiting: false
+      )
+    case .succeeded:
+      PhaseAppearance(
+        symbol: "checkmark.circle.fill",
+        tint: .mint,
+        label: L10n.text("progress.completed"),
+        isWaiting: false
+      )
+    case .skipped:
+      PhaseAppearance(
+        symbol: "minus.circle.fill",
+        tint: .secondary,
+        label: L10n.text("progress.skipped"),
+        isWaiting: false
+      )
+    case .warning:
+      PhaseAppearance(
+        symbol: "exclamationmark.circle.fill",
+        tint: .orange,
+        label: L10n.text("progress.warning"),
+        isWaiting: false
+      )
+    case .failed:
+      PhaseAppearance(
+        symbol: "xmark.circle.fill",
+        tint: .red,
+        label: L10n.text("progress.failed"),
+        isWaiting: false
+      )
+    }
   }
 }
 

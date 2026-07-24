@@ -1,10 +1,8 @@
-import AppKit
 import SimulatorSlimmerCore
 import SwiftUI
 
 struct SettingsView: View {
-  let model: AppModel
-  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @AppStorage("automaticRefresh") private var automaticRefresh = true
   @AppStorage("automaticRefreshInterval") private var automaticRefreshInterval = 30.0
   @AppStorage("showUnavailableDevices") private var showUnavailableDevices = false
@@ -12,37 +10,26 @@ struct SettingsView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
-        header
+      VStack(alignment: .leading, spacing: 16) {
         generalSettings
-        safetySettings
-        privacyPanel
-        aboutPanel
       }
-      .frame(maxWidth: 760)
+      .frame(maxWidth: 620)
       .padding(InstrumentTheme.pagePadding)
       .frame(maxWidth: .infinity, alignment: .top)
     }
+    .scrollBounceBehavior(.basedOnSize)
     .background(Color.instrumentBackground)
     .navigationTitle("sidebar.settings")
     .accessibilityIdentifier("settings.page")
   }
 
-  private var header: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      Text("settings.title")
-        .font(.title2.weight(.semibold))
-      Text("settings.subtitle")
-        .font(.callout)
-        .foregroundStyle(.secondary)
-    }
-  }
-
   private var generalSettings: some View {
     InstrumentCard {
-      VStack(alignment: .leading, spacing: 14) {
+      VStack(alignment: .leading, spacing: 0) {
         InstrumentSectionLabel(title: "settings.general")
+          .padding(.bottom, 10)
 
+        Divider()
         settingToggle(
           title: L10n.text("settings.auto-refresh"),
           summary: L10n.text("settings.auto-refresh.summary"),
@@ -50,24 +37,25 @@ struct SettingsView: View {
         )
 
         if automaticRefresh {
-          Divider()
-          HStack {
-            VStack(alignment: .leading, spacing: 3) {
-              Text("settings.refresh-interval")
-              Text("settings.refresh-interval.summary")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+          VStack(alignment: .leading, spacing: 0) {
+            Divider()
+            settingRow(
+              title: L10n.text("settings.refresh-interval"),
+              summary: L10n.text("settings.refresh-interval.summary")
+            ) {
+              Picker("settings.refresh-interval", selection: $automaticRefreshInterval) {
+                Text("settings.interval.15").tag(15.0)
+                Text("settings.interval.30").tag(30.0)
+                Text("settings.interval.60").tag(60.0)
+              }
+              .labelsHidden()
+              .controlSize(.regular)
+              .frame(minWidth: 112, alignment: .trailing)
+              .fixedSize(horizontal: true, vertical: false)
             }
-            Spacer()
-            Picker("settings.refresh-interval", selection: $automaticRefreshInterval) {
-              Text("settings.interval.15").tag(15.0)
-              Text("settings.interval.30").tag(30.0)
-              Text("settings.interval.60").tag(60.0)
-            }
-            .labelsHidden()
-            .frame(width: 120)
           }
-          .frame(minHeight: 40)
+          .padding(.leading, 12)
+          .transition(.opacity.combined(with: .offset(y: -6)))
         }
 
         Divider()
@@ -78,144 +66,25 @@ struct SettingsView: View {
         )
 
         Divider()
-        HStack {
-          VStack(alignment: .leading, spacing: 3) {
-            Text("settings.default-profile")
-            Text("settings.default-profile.summary")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          Spacer()
+        settingRow(
+          title: L10n.text("settings.default-profile"),
+          summary: L10n.text("settings.default-profile.summary")
+        ) {
           Picker("settings.default-profile", selection: $defaultProfile) {
             ForEach(OptimizationProfile.allCases.filter { $0 != .custom }) { profile in
               Text(profile.localizedTitle).tag(profile.rawValue)
             }
           }
           .labelsHidden()
-          .frame(width: 140)
-        }
-        .frame(minHeight: 40)
-      }
-    }
-  }
-
-  private var safetySettings: some View {
-    InstrumentCard {
-      VStack(alignment: .leading, spacing: 14) {
-        InstrumentSectionLabel(title: "settings.safety")
-        HStack(spacing: 10) {
-          Image(systemName: "checkmark.shield.fill")
-            .foregroundStyle(.mint)
-            .accessibilityHidden(true)
-          VStack(alignment: .leading, spacing: 3) {
-            Text("settings.cleanup-confirmation-required")
-            Text("settings.cleanup-confirmation-required.summary")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          Spacer()
-        }
-        .frame(minHeight: 40)
-
-        Divider()
-
-        HStack(spacing: 10) {
-          Image(systemName: "lock.shield.fill")
-            .foregroundStyle(.mint)
-            .accessibilityHidden(true)
-          Text("settings.destructive-note")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Spacer()
-        }
-        .frame(minHeight: 40)
-      }
-    }
-  }
-
-  private var privacyPanel: some View {
-    InstrumentCard {
-      VStack(alignment: .leading, spacing: 14) {
-        HStack(alignment: .top, spacing: 14) {
-          Image(systemName: "network.slash")
-            .font(.title2)
-            .foregroundStyle(.mint)
-            .frame(width: 36)
-            .accessibilityHidden(true)
-          VStack(alignment: .leading, spacing: 5) {
-            Text("settings.privacy.title")
-              .font(.headline)
-            Text("settings.privacy.message")
-              .font(.callout)
-              .foregroundStyle(.secondary)
-              .fixedSize(horizontal: false, vertical: true)
-          }
-        }
-
-        Divider()
-
-        HStack(spacing: 12) {
-          Image(systemName: "doc.zipper")
-            .foregroundStyle(.mint)
-            .frame(width: 36)
-            .accessibilityHidden(true)
-          VStack(alignment: .leading, spacing: 3) {
-            Text("diagnostics.export.label")
-            Text("diagnostics.export.summary")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          Spacer()
-          if model.isExportingDiagnostics {
-            ProgressView()
-              .controlSize(.small)
-              .accessibilityLabel("diagnostics.export.progress")
-          }
-          Button("diagnostics.export.action") {
-            model.exportDiagnostics()
-          }
-          .disabled(model.isExportingDiagnostics)
-          .minimumHitArea()
+          .controlSize(.regular)
+          .frame(minWidth: 112, alignment: .trailing)
+          .fixedSize(horizontal: true, vertical: false)
         }
       }
-    }
-  }
-
-  private var aboutPanel: some View {
-    InstrumentCard {
-      HStack(spacing: 14) {
-        Image(nsImage: NSApplication.shared.applicationIconImage)
-          .resizable()
-          .interpolation(.high)
-          .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-          .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-              .stroke(
-                colorScheme == .dark ? Color.white.opacity(0.1) : Color.black.opacity(0.1),
-                lineWidth: 1
-              )
-          }
-          .frame(width: 52, height: 52)
-          .accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 3) {
-          Text("app.name")
-            .font(.headline)
-          Text(L10n.formatted("settings.version", appVersion))
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
-          Text("settings.copyright")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Text("settings.license")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        Spacer()
-        Button("settings.reset") {
-          resetSettings()
-        }
-        .minimumHitArea()
-      }
+      .animation(
+        reduceMotion ? nil : .easeOut(duration: 0.16),
+        value: automaticRefresh
+      )
     }
   }
 
@@ -227,23 +96,45 @@ struct SettingsView: View {
     Toggle(isOn: isOn) {
       VStack(alignment: .leading, spacing: 3) {
         Text(title)
+          .font(.body.weight(.medium))
         Text(summary)
           .font(.caption)
           .foregroundStyle(.secondary)
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
     .toggleStyle(.switch)
-    .frame(minHeight: 40)
+    .frame(
+      maxWidth: .infinity,
+      minHeight: InstrumentTheme.minimumHitSize,
+      alignment: .leading
+    )
+    .padding(.vertical, 8)
+    .contentShape(Rectangle())
   }
 
-  private var appVersion: String {
-    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-  }
-
-  private func resetSettings() {
-    automaticRefresh = true
-    automaticRefreshInterval = 30
-    showUnavailableDevices = false
-    defaultProfile = OptimizationProfile.balanced.rawValue
+  private func settingRow<Control: View>(
+    title: String,
+    summary: String,
+    @ViewBuilder control: () -> Control
+  ) -> some View {
+    HStack(alignment: .center, spacing: 20) {
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+          .font(.body.weight(.medium))
+        Text(summary)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      Spacer(minLength: 20)
+      control()
+    }
+    .frame(
+      maxWidth: .infinity,
+      minHeight: InstrumentTheme.minimumHitSize,
+      alignment: .leading
+    )
+    .padding(.vertical, 8)
+    .contentShape(Rectangle())
   }
 }

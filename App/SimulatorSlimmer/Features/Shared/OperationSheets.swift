@@ -1,4 +1,3 @@
-import AppKit
 import SimulatorSlimmerCore
 import SwiftUI
 
@@ -15,54 +14,14 @@ struct OperationPreviewSheet: View {
       Divider()
 
       ScrollView {
-        VStack(alignment: .leading, spacing: 18) {
-          Text(preview.summary)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-          if let bytes = preview.selectedBytes {
-            previewMetric(
-              title: L10n.text("preview.selected-space"),
-              value: ValueFormatter.bytes(bytes),
-              symbol: "internaldrive"
-            )
-          }
-
-          if !preview.warnings.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
-              ForEach(preview.warnings, id: \.self) { warning in
-                NoticeStrip(tone: .warning, title: warning)
-              }
-            }
-          }
-
-          if !preview.serviceChanges.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-              InstrumentSectionLabel(
-                title: "preview.service-changes",
-                detail: L10n.formatted("format.changes", preview.serviceChanges.count)
-              )
-              VStack(spacing: 0) {
-                ForEach(preview.serviceChanges) { change in
-                  PreviewChangeRow(change: change)
-                  if change.id != preview.serviceChanges.last?.id { Divider() }
-                }
-              }
-              .padding(.horizontal, 12)
-              .background(
-                Color.instrumentRaised,
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-              )
-            }
-          }
-        }
-        .padding(20)
+        previewContent
+          .padding(20)
       }
+      .scrollBounceBehavior(.basedOnSize)
 
       Divider()
       HStack {
-        Text("preview.safety-note")
+        Text(safetyNote)
           .font(.caption)
           .foregroundStyle(.secondary)
         Spacer()
@@ -77,29 +36,262 @@ struct OperationPreviewSheet: View {
         .minimumHitArea()
 
         if presentation.confirmsExecution {
-          Button {
-            confirm()
-          } label: {
-            Label(executeTitle, systemImage: preview.operation.kind.symbolName)
+          if allowsDefaultAction {
+            executeButton
+              .keyboardShortcut(.defaultAction)
+          } else {
+            executeButton
           }
-          .buttonStyle(PressablePrimaryButtonStyle())
-          .keyboardShortcut(.defaultAction)
         }
       }
       .padding(16)
     }
-    .frame(minWidth: 560, idealWidth: 620, minHeight: 420, idealHeight: 560)
+    .frame(
+      minWidth: 560,
+      idealWidth: 620,
+      minHeight: minimumSheetHeight,
+      idealHeight: idealSheetHeight
+    )
     .background(Color.instrumentBackground)
+    .suppressInitialFocus()
     .accessibilityIdentifier("operation-preview.sheet")
+  }
+
+  @ViewBuilder
+  private var previewContent: some View {
+    if usesImpactLayout {
+      VStack(alignment: .leading, spacing: 14) {
+        impactCard
+        previewWarnings
+      }
+      .frame(maxWidth: 520)
+      .frame(maxWidth: .infinity, alignment: .top)
+    } else {
+      VStack(alignment: .leading, spacing: 18) {
+        Text(preview.summary)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+
+        if let bytes = preview.selectedBytes {
+          previewMetric(
+            title: L10n.text("preview.selected-space"),
+            value: ValueFormatter.bytes(bytes),
+            symbol: "internaldrive"
+          )
+        }
+
+        previewWarnings
+
+        if !preview.serviceChanges.isEmpty {
+          VStack(alignment: .leading, spacing: 10) {
+            InstrumentSectionLabel(
+              title: "preview.service-changes",
+              detail: L10n.formatted("format.changes", preview.serviceChanges.count)
+            )
+            VStack(spacing: 0) {
+              ForEach(preview.serviceChanges) { change in
+                PreviewChangeRow(change: change)
+                if change.id != preview.serviceChanges.last?.id { Divider() }
+              }
+            }
+            .padding(.horizontal, 12)
+            .background(
+              Color.instrumentRaised,
+              in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+          }
+        }
+      }
+    }
+  }
+
+  private var impactCard: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      VStack(alignment: .leading, spacing: 5) {
+        Text("preview.impact.title")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(.secondary)
+          .accessibilityAddTraits(.isHeader)
+
+        Text(preview.summary)
+          .font(.body.weight(.medium))
+          .foregroundStyle(.primary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+      .padding(14)
+
+      if !impactItems.isEmpty {
+        Divider()
+          .padding(.horizontal, 14)
+
+        ForEach(impactItems) { item in
+          impactRow(item)
+          if item.id != impactItems.last?.id {
+            Divider()
+              .padding(.leading, 52)
+          }
+        }
+      }
+    }
+    .background(
+      Color.instrumentRaised.opacity(0.72),
+      in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+    )
+  }
+
+  private func impactRow(_ item: PreviewImpactItem) -> some View {
+    HStack(spacing: 10) {
+      ZStack {
+        Circle()
+          .fill(item.tint.opacity(0.1))
+        Image(systemName: item.symbol)
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(item.tint)
+      }
+      .frame(width: 28, height: 28)
+      .accessibilityHidden(true)
+
+      Text(item.title)
+        .font(.callout)
+        .foregroundStyle(.secondary)
+
+      Spacer(minLength: 16)
+
+      Text(item.value)
+        .font(.callout.weight(.semibold))
+        .multilineTextAlignment(.trailing)
+    }
+    .padding(.horizontal, 14)
+    .frame(minHeight: 46)
+    .accessibilityElement(children: .combine)
+  }
+
+  @ViewBuilder
+  private var previewWarnings: some View {
+    if !preview.warnings.isEmpty {
+      VStack(alignment: .leading, spacing: 8) {
+        ForEach(preview.warnings, id: \.self) { warning in
+          NoticeStrip(tone: warningTone, title: warning)
+        }
+      }
+    }
+  }
+
+  private var impactItems: [PreviewImpactItem] {
+    switch preview.operation.kind {
+    case .delete:
+      [
+        PreviewImpactItem(
+          title: L10n.text("preview.impact.device"),
+          value: L10n.text("preview.impact.device-delete"),
+          symbol: "iphone.slash",
+          tint: .red
+        ),
+        PreviewImpactItem(
+          title: L10n.text("preview.impact.local-data"),
+          value: L10n.text("preview.impact.data-delete"),
+          symbol: "internaldrive",
+          tint: .red
+        ),
+      ]
+    case .erase:
+      [
+        PreviewImpactItem(
+          title: L10n.text("preview.impact.device"),
+          value: L10n.text("preview.impact.device-keep"),
+          symbol: "iphone",
+          tint: .mint
+        ),
+        PreviewImpactItem(
+          title: L10n.text("preview.impact.local-data"),
+          value: L10n.text("preview.impact.data-delete"),
+          symbol: "internaldrive",
+          tint: .red
+        ),
+      ]
+    case .clone:
+      [
+        PreviewImpactItem(
+          title: L10n.text("preview.impact.source-device"),
+          value: L10n.text("preview.impact.device-keep"),
+          symbol: "iphone",
+          tint: .mint
+        ),
+        PreviewImpactItem(
+          title: L10n.text("preview.impact.device-copy"),
+          value: L10n.text("preview.impact.copy-create"),
+          symbol: "plus.square.on.square",
+          tint: .orange
+        ),
+      ]
+    default:
+      []
+    }
+  }
+
+  private var isSparsePreview: Bool {
+    preview.selectedBytes == nil && preview.serviceChanges.isEmpty
+  }
+
+  private var usesImpactLayout: Bool {
+    switch preview.operation.kind {
+    case .erase, .delete, .clone:
+      true
+    default:
+      false
+    }
+  }
+
+  private var minimumSheetHeight: CGFloat {
+    guard isSparsePreview else { return 420 }
+    return usesImpactLayout ? 360 : 260
+  }
+
+  private var idealSheetHeight: CGFloat {
+    guard isSparsePreview else { return 560 }
+    return usesImpactLayout ? 410 : 300
+  }
+
+  private var safetyNote: String {
+    switch preview.operation.kind {
+    case .erase, .delete, .clone:
+      L10n.text("preview.safety-note.device-operation")
+    default:
+      L10n.text("preview.safety-note")
+    }
+  }
+
+  private var executeButton: some View {
+    Button(role: actionRole) {
+      confirm()
+    } label: {
+      Label(executeTitle, systemImage: preview.operation.kind.symbolName)
+    }
+    .buttonStyle(
+      PressablePrimaryButtonStyle(
+        tint: actionTint,
+        foreground: .white
+      )
+    )
+  }
+
+  private var allowsDefaultAction: Bool {
+    switch preview.operation.kind {
+    case .cleanStorage, .erase, .delete:
+      false
+    default:
+      true
+    }
   }
 
   private var sheetHeader: some View {
     HStack(spacing: 12) {
       ZStack {
         RoundedRectangle(cornerRadius: 10, style: .continuous)
-          .fill(Color.mint.opacity(0.11))
+          .fill(actionTint.opacity(0.11))
         Image(systemName: preview.operation.kind.symbolName)
-          .foregroundStyle(.mint)
+          .foregroundStyle(actionTint)
           .font(.system(size: 18, weight: .semibold))
       }
       .frame(width: 40, height: 40)
@@ -115,6 +307,28 @@ struct OperationPreviewSheet: View {
     }
     .padding(16)
     .background(.bar)
+  }
+
+  private var actionTint: Color {
+    switch preview.operation.kind {
+    case .erase, .delete: .red
+    case .clone: .orange
+    default: .mint
+    }
+  }
+
+  private var actionRole: ButtonRole? {
+    switch preview.operation.kind {
+    case .erase, .delete: .destructive
+    default: nil
+    }
+  }
+
+  private var warningTone: NoticeStrip.Tone {
+    switch preview.operation.kind {
+    case .erase, .delete: .error
+    default: .warning
+    }
   }
 
   private var executeTitle: String {
@@ -145,6 +359,15 @@ struct OperationPreviewSheet: View {
     .background(Color.instrumentRaised, in: RoundedRectangle(cornerRadius: 12))
     .accessibilityElement(children: .combine)
   }
+}
+
+private struct PreviewImpactItem: Identifiable {
+  let title: String
+  let value: String
+  let symbol: String
+  let tint: Color
+
+  var id: String { title }
 }
 
 struct BatchPreviewSheet: View {
@@ -210,6 +433,7 @@ struct BatchPreviewSheet: View {
     }
     .frame(minWidth: 700, idealWidth: 760, minHeight: 540, idealHeight: 680)
     .background(Color.instrumentBackground)
+    .suppressInitialFocus()
     .interactiveDismissDisabled()
     .accessibilityIdentifier("batch-preview.sheet")
   }
@@ -372,6 +596,7 @@ struct BatchPreviewSheet: View {
             .font(.subheadline.weight(.medium))
             .frame(minHeight: InstrumentTheme.minimumHitSize)
           }
+          .disclosureGroupStyle(InstrumentDisclosureGroupStyle())
         }
       }
     }
@@ -429,12 +654,17 @@ private struct PreviewChangeRow: View {
   }
 
   private var accessibilityLabel: String {
-    [change.serviceName, change.impact, change.label]
-      .compactMap { value in
-        guard let value, !value.isEmpty else { return nil }
-        return value
-      }
-      .joined(separator: "，")
+    [
+      change.serviceName,
+      L10n.formatted("accessibility.risk", change.risk.localizedTitle),
+      change.impact,
+      change.label,
+    ]
+    .compactMap { value in
+      guard let value, !value.isEmpty else { return nil }
+      return value
+    }
+    .joined(separator: "，")
   }
 }
 
@@ -443,12 +673,10 @@ struct DangerConfirmationSheet: View {
   let cancel: () -> Void
   let confirm: (String?) -> Void
 
-  @State private var confirmationText = ""
   @State private var cloneName = ""
   @FocusState private var focusedField: Field?
 
   private enum Field {
-    case confirmation
     case cloneName
   }
 
@@ -470,6 +698,8 @@ struct DangerConfirmationSheet: View {
           Text(presentation.device.name)
             .font(.caption)
             .foregroundStyle(.secondary)
+            .lineLimit(2)
+            .truncationMode(.middle)
         }
         Spacer()
       }
@@ -478,39 +708,25 @@ struct DangerConfirmationSheet: View {
 
       Divider()
 
-      VStack(alignment: .leading, spacing: 18) {
-        NoticeStrip(tone: tone, title: warningTitle, message: warningMessage)
+      ScrollView {
+        VStack(alignment: .leading, spacing: 18) {
+          NoticeStrip(tone: tone, title: warningTitle, message: warningMessage)
 
-        if presentation.kind == .clone {
-          VStack(alignment: .leading, spacing: 7) {
-            Text("confirmation.clone-name")
-              .font(.subheadline.weight(.medium))
-            TextField("confirmation.clone-name.placeholder", text: $cloneName)
-              .textFieldStyle(.roundedBorder)
-              .frame(minHeight: InstrumentTheme.minimumHitSize)
-              .focused($focusedField, equals: .cloneName)
-              .accessibilityHint("confirmation.clone-name.hint")
-          }
-        } else {
-          VStack(alignment: .leading, spacing: 7) {
-            Text(
-              L10n.formatted(
-                "confirmation.type-device-name",
-                presentation.device.name
-              )
-            )
-            .font(.subheadline.weight(.medium))
-            TextField(presentation.device.name, text: $confirmationText)
-              .textFieldStyle(.roundedBorder)
-              .frame(minHeight: InstrumentTheme.minimumHitSize)
-              .focused($focusedField, equals: .confirmation)
-              .accessibilityLabel("confirmation.input")
+          if presentation.kind == .clone {
+            VStack(alignment: .leading, spacing: 7) {
+              Text("confirmation.clone-name")
+                .font(.subheadline.weight(.medium))
+              TextField("confirmation.clone-name.placeholder", text: $cloneName)
+                .textFieldStyle(.roundedBorder)
+                .frame(minHeight: InstrumentTheme.minimumHitSize)
+                .focused($focusedField, equals: .cloneName)
+                .accessibilityHint("confirmation.clone-name.hint")
+            }
           }
         }
+        .padding(20)
       }
-      .padding(20)
 
-      Spacer(minLength: 0)
       Divider()
 
       HStack {
@@ -518,21 +734,26 @@ struct DangerConfirmationSheet: View {
         Button("action.cancel", action: cancel)
           .keyboardShortcut(.cancelAction)
           .minimumHitArea()
-        Button(role: presentation.kind == .clone ? nil : .destructive) {
-          confirm(presentation.kind == .clone ? cloneName : nil)
-        } label: {
-          Text(actionTitle)
+        if presentation.kind == .clone {
+          confirmationButton
+            .keyboardShortcut(.defaultAction)
+        } else {
+          confirmationButton
         }
-        .keyboardShortcut(.defaultAction)
-        .disabled(!canConfirm)
-        .minimumHitArea()
       }
       .padding(16)
     }
-    .frame(width: 520, height: 390)
+    .frame(
+      minWidth: 480,
+      idealWidth: 520,
+      minHeight: presentation.kind == .clone ? 360 : 280,
+      idealHeight: presentation.kind == .clone ? 420 : 320
+    )
     .background(Color.instrumentBackground)
     .onAppear {
-      focusedField = presentation.kind == .clone ? .cloneName : .confirmation
+      if presentation.kind == .clone {
+        focusedField = .cloneName
+      }
     }
     .interactiveDismissDisabled()
     .accessibilityIdentifier("danger-confirmation.sheet")
@@ -542,11 +763,27 @@ struct DangerConfirmationSheet: View {
     if presentation.kind == .clone {
       return !cloneName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
-    return confirmationText == presentation.device.name
+    return true
   }
 
-  private var tint: Color { presentation.kind == .clone ? .blue : .red }
-  private var tone: NoticeStrip.Tone { presentation.kind == .clone ? .info : .error }
+  private var tint: Color { presentation.kind == .clone ? .orange : .red }
+  private var tone: NoticeStrip.Tone { presentation.kind == .clone ? .warning : .error }
+
+  private var confirmationButton: some View {
+    Button(role: presentation.kind == .clone ? nil : .destructive) {
+      confirm(presentation.kind == .clone ? cloneName : nil)
+    } label: {
+      Text(actionTitle)
+    }
+    .buttonStyle(
+      PressablePrimaryButtonStyle(
+        tint: tint,
+        foreground: .white
+      )
+    )
+    .disabled(!canConfirm)
+    .minimumHitArea()
+  }
 
   private var title: String {
     switch presentation.kind {
@@ -582,311 +819,11 @@ struct DangerConfirmationSheet: View {
 
   private var actionTitle: String {
     switch presentation.kind {
-    case .erase: L10n.text("action.erase")
-    case .delete: L10n.text("action.delete")
+    case .erase:
+      L10n.text("confirmation.erase.action")
+    case .delete:
+      L10n.text("confirmation.delete.action")
     case .clone: L10n.text("action.clone")
     }
-  }
-}
-
-struct ReceiptDetailSheet: View {
-  let receipt: OperationReceipt
-  let canContinueVerification: Bool
-  let canRestore: Bool
-  let dismiss: () -> Void
-  let continueVerification: () -> Void
-  let restore: () -> Void
-
-  var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: 12) {
-        Image(systemName: receipt.status.symbolName)
-          .font(.system(size: 25))
-          .foregroundStyle(receipt.status.tint)
-          .accessibilityHidden(true)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(receipt.kind.localizedTitle)
-            .font(.title3.weight(.semibold))
-          Text(receipt.deviceName)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        Spacer()
-        if let opaquePayload = receipt.opaquePayload {
-          Text(
-            opaquePayload.reason == .corrupted
-              ? L10n.text("receipt.corrupted.badge")
-              : L10n.text("receipt.read-only.badge")
-          )
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(opaquePayload.reason == .corrupted ? .red : .orange)
-          .padding(.horizontal, 9)
-          .padding(.vertical, 5)
-          .background(
-            (opaquePayload.reason == .corrupted ? Color.red : Color.orange).opacity(0.1),
-            in: Capsule()
-          )
-        }
-        Text(receipt.status.localizedTitle)
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(receipt.status.tint)
-          .padding(.horizontal, 9)
-          .padding(.vertical, 5)
-          .background(receipt.status.tint.opacity(0.1), in: Capsule())
-      }
-      .padding(16)
-      .background(.bar)
-
-      Divider()
-
-      ScrollView {
-        ReceiptInspectorContent(receipt: receipt)
-          .padding(20)
-      }
-
-      Divider()
-      HStack {
-        Button("receipt.copy-json") { copyReceipt() }
-          .minimumHitArea()
-        Spacer()
-        if canRestore {
-          Button {
-            restore()
-          } label: {
-            Label("receipt.action.restore-baseline", systemImage: "arrow.uturn.backward")
-          }
-          .minimumHitArea()
-          .accessibilityHint("receipt.action.restore-baseline.hint")
-        }
-        if canContinueVerification {
-          Button {
-            continueVerification()
-          } label: {
-            Label("action.continue-verification", systemImage: "checkmark.magnifyingglass")
-          }
-          .buttonStyle(PressablePrimaryButtonStyle())
-          .minimumHitArea()
-          .accessibilityHint("receipt.action.continue-verification.hint")
-        }
-        Button("action.close", action: dismiss)
-          .keyboardShortcut(.defaultAction)
-          .minimumHitArea()
-      }
-      .padding(16)
-    }
-    .frame(minWidth: 600, idealWidth: 680, minHeight: 500, idealHeight: 620)
-    .background(Color.instrumentBackground)
-    .accessibilityIdentifier("receipt-detail.sheet")
-  }
-
-  private func copyReceipt() {
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    encoder.dateEncodingStrategy = .iso8601
-    guard let data = try? encoder.encode(receipt), let json = String(data: data, encoding: .utf8)
-    else {
-      return
-    }
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(json, forType: .string)
-  }
-}
-
-struct ReceiptInspectorContent: View {
-  let receipt: OperationReceipt
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 18) {
-      if let opaquePayload = receipt.opaquePayload {
-        NoticeStrip(
-          tone: opaquePayload.reason == .corrupted ? .error : .warning,
-          title: opaquePayload.reason == .corrupted
-            ? L10n.text("receipt.corrupted.title")
-            : L10n.text("receipt.read-only.title"),
-          message: L10n.formatted(
-            "receipt.opaque.message",
-            opaquePayload.sourceFileName,
-            opaquePayload.errorMessage
-          )
-        )
-        .accessibilityIdentifier("receipt.opaque.\(opaquePayload.reason.rawValue)")
-      } else if receipt.schemaVersion != 1 {
-        NoticeStrip(
-          tone: .warning,
-          title: L10n.text("receipt.unsupported-schema.title"),
-          message: L10n.formatted(
-            "receipt.unsupported-schema.message",
-            receipt.schemaVersion
-          )
-        )
-      }
-
-      if let pendingChange = receipt.pendingChange {
-        InstrumentCard {
-          VStack(alignment: .leading, spacing: 12) {
-            InstrumentSectionLabel(title: "receipt.pending-change")
-            NoticeStrip(
-              tone: .warning,
-              title: L10n.text("receipt.pending-change.warning"),
-              message: L10n.text("receipt.pending-change.message")
-            )
-            PreviewChangeRow(change: pendingChange)
-          }
-        }
-        .accessibilityIdentifier("receipt.pending-change")
-      }
-
-      InstrumentCard {
-        VStack(spacing: 12) {
-          detailRow(L10n.text("receipt.id"), receipt.id.rawValue.uuidString, monospaced: true)
-          Divider()
-          detailRow(
-            L10n.text("receipt.schema-version"),
-            String(receipt.schemaVersion),
-            monospaced: true
-          )
-          Divider()
-          detailRow(
-            L10n.text("receipt.started-at"),
-            receipt.startedAt.formatted(date: .abbreviated, time: .standard)
-          )
-          if let finishedAt = receipt.finishedAt {
-            Divider()
-            detailRow(
-              L10n.text("receipt.finished-at"),
-              finishedAt.formatted(date: .abbreviated, time: .standard)
-            )
-          }
-          Divider()
-          detailRow(
-            L10n.text("receipt.device-state"),
-            "\(receipt.originalDeviceState.localizedTitle) → \(receipt.finalDeviceState?.localizedTitle ?? "—")"
-          )
-        }
-      }
-
-      if let before = receipt.memoryBefore, let after = receipt.memoryAfter {
-        InstrumentCard {
-          VStack(alignment: .leading, spacing: 12) {
-            InstrumentSectionLabel(title: "receipt.memory")
-            HStack(spacing: 0) {
-              resultMetric(
-                L10n.text("result.before"),
-                ValueFormatter.bytes(before.bytes)
-              )
-              Divider().frame(height: 34)
-              resultMetric(
-                L10n.text("result.after"),
-                ValueFormatter.bytes(after.bytes)
-              )
-              if let delta = receipt.reclaimedBytes {
-                Divider().frame(height: 34)
-                resultMetric(
-                  MemoryDeltaPresentation.title(for: delta),
-                  MemoryDeltaPresentation.value(for: delta, before: before.bytes),
-                  tint: MemoryDeltaPresentation.tint(for: delta)
-                )
-              }
-            }
-          }
-        }
-      }
-
-      if !receipt.appliedChanges.isEmpty {
-        InstrumentCard {
-          VStack(alignment: .leading, spacing: 10) {
-            InstrumentSectionLabel(
-              title: "receipt.applied-changes",
-              detail: L10n.formatted("format.items", receipt.appliedChanges.count)
-            )
-            ForEach(receipt.appliedChanges) { applied in
-              HStack(alignment: .top, spacing: 10) {
-                Image(
-                  systemName: applied.succeeded
-                    ? "checkmark.circle.fill"
-                    : "xmark.circle.fill"
-                )
-                .foregroundStyle(applied.succeeded ? .mint : .red)
-                .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(applied.change.serviceName)
-                    .font(.subheadline.weight(.medium))
-                  Text(applied.change.label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                  Text(applied.change.localizedStateTransition)
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(
-                      applied.change.transition == .disable ? .orange : .mint
-                    )
-                  if let impact = applied.change.impact, !impact.isEmpty {
-                    Text(impact)
-                      .font(.caption)
-                      .foregroundStyle(.secondary)
-                      .fixedSize(horizontal: false, vertical: true)
-                  }
-                  if let errorMessage = applied.errorMessage {
-                    Text(errorMessage)
-                      .font(.caption)
-                      .foregroundStyle(.red)
-                      .fixedSize(horizontal: false, vertical: true)
-                  }
-                }
-                Spacer()
-              }
-              .padding(.vertical, 5)
-              .accessibilityElement(children: .combine)
-            }
-          }
-        }
-      }
-
-      if !receipt.messages.isEmpty {
-        InstrumentCard {
-          VStack(alignment: .leading, spacing: 10) {
-            InstrumentSectionLabel(title: "receipt.messages")
-            ForEach(Array(receipt.messages.enumerated()), id: \.offset) { index, message in
-              HStack(alignment: .top, spacing: 9) {
-                Text("\(index + 1)")
-                  .font(.caption2.monospacedDigit())
-                  .foregroundStyle(.secondary)
-                  .frame(width: 22, alignment: .trailing)
-                Text(message)
-                  .font(.caption.monospaced())
-                  .textSelection(.enabled)
-                  .fixedSize(horizontal: false, vertical: true)
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  private func detailRow(_ title: String, _ value: String, monospaced: Bool = false) -> some View {
-    HStack(alignment: .firstTextBaseline, spacing: 16) {
-      Text(title)
-        .foregroundStyle(.secondary)
-      Spacer()
-      Text(value)
-        .font(monospaced ? .caption.monospaced() : .callout)
-        .monospacedDigit()
-        .textSelection(.enabled)
-        .multilineTextAlignment(.trailing)
-    }
-    .accessibilityElement(children: .combine)
-  }
-
-  private func resultMetric(_ title: String, _ value: String, tint: Color = .primary) -> some View {
-    VStack(alignment: .leading, spacing: 3) {
-      Text(title)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-      Text(value)
-        .font(.headline.monospacedDigit())
-        .foregroundStyle(tint)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }

@@ -11,9 +11,9 @@ struct SimulatorSlimmerApp: App {
       WorkspaceRootView(model: model)
         .environment(model)
         .tint(.mint)
-        .frame(minWidth: 920, minHeight: 620)
+        .frame(minWidth: 980, minHeight: 640)
     }
-    .defaultSize(width: 1120, height: 720)
+    .defaultSize(width: 1_180, height: 760)
     .commands {
       SimulatorSlimmerCommands(model: model)
     }

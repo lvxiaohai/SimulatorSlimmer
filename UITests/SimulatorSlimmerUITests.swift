@@ -12,7 +12,6 @@ final class SimulatorSlimmerUITests: XCTestCase {
     case partial
     case interrupted
     case unsupported
-    case opaqueReceipts
 
     var launchArgument: String? {
       switch self {
@@ -22,7 +21,6 @@ final class SimulatorSlimmerUITests: XCTestCase {
       case .partial: "--ui-testing-partial"
       case .interrupted: "--ui-testing-interrupted"
       case .unsupported: "--ui-testing-unsupported"
-      case .opaqueReceipts: "--ui-testing-opaque-receipts"
       }
     }
   }
@@ -38,11 +36,52 @@ final class SimulatorSlimmerUITests: XCTestCase {
     XCTAssertTrue(app.buttons["优化此模拟器"].waitForExistence(timeout: 5))
   }
 
+  func testCompletedOptimizationDoesNotRestartAfterSwitchingDevices() {
+    let app = launch(.ready)
+
+    XCTAssertTrue(element(identifier: "optimization.page", in: app).waitForExistence(timeout: 5))
+    app.buttons["优化此模拟器"].click()
+
+    let previewSheet = element(identifier: "operation-preview.sheet", in: app)
+    XCTAssertTrue(previewSheet.waitForExistence(timeout: 3))
+    previewSheet.buttons["优化此模拟器"].click()
+
+    let successMessage = app.staticTexts["最终状态已验证，并已保存可恢复基线。"]
+    XCTAssertTrue(successMessage.waitForExistence(timeout: 8))
+    XCTAssertFalse(app.staticTexts["正在优化"].exists)
+
+    app.buttons["iPad Pro 13-inch"].click()
+    XCTAssertTrue(app.staticTexts["iPad Pro 13-inch"].waitForExistence(timeout: 3))
+    app.buttons["iPhone 17 Pro"].click()
+
+    XCTAssertTrue(successMessage.waitForExistence(timeout: 3))
+    XCTAssertFalse(app.staticTexts["正在优化"].exists)
+  }
+
+  func testOptimizationProfileDraftIsScopedToEachDevice() {
+    let app = launch(.ready)
+
+    let efficientProfile = app.radioButtons["高效"]
+    XCTAssertTrue(efficientProfile.waitForExistence(timeout: 5))
+    efficientProfile.click()
+    XCTAssertTrue(efficientProfile.isSelected)
+
+    app.buttons["iPad Pro 13-inch"].click()
+    let balancedProfile = app.radioButtons["均衡"]
+    XCTAssertTrue(balancedProfile.waitForExistence(timeout: 3))
+    XCTAssertTrue(balancedProfile.isSelected)
+
+    app.buttons["iPhone 17 Pro"].click()
+    XCTAssertTrue(efficientProfile.waitForExistence(timeout: 3))
+    XCTAssertTrue(efficientProfile.isSelected)
+  }
+
   func testBootedDeviceRequiresShutdownBeforeStorageOperations() {
     let app = launch(.ready)
 
-    XCTAssertTrue(app.buttons["存储"].waitForExistence(timeout: 5))
-    app.buttons["存储"].click()
+    let storageSection = sectionControl("存储", in: app)
+    XCTAssertTrue(storageSection.waitForExistence(timeout: 5))
+    storageSection.click()
 
     XCTAssertTrue(app.staticTexts["请先关闭模拟器"].waitForExistence(timeout: 3))
     XCTAssertTrue(app.buttons["关机"].exists)
@@ -101,24 +140,75 @@ final class SimulatorSlimmerUITests: XCTestCase {
     XCTAssertFalse(app.staticTexts["串行队列"].exists)
   }
 
-  func testInterruptedReceiptShowsRecoveryPrompt() {
+  func testBatchOffersEditableCustomProfile() {
+    let app = launch(.ready)
+
+    let batchNavigation = element(identifier: "sidebar.batch-optimization", in: app)
+    XCTAssertTrue(batchNavigation.waitForExistence(timeout: 5))
+    batchNavigation.click()
+    XCTAssertTrue(
+      element(identifier: "batch-optimization.page", in: app).waitForExistence(timeout: 5)
+    )
+
+    let customProfile = app.radioButtons["自定义"]
+    XCTAssertTrue(customProfile.waitForExistence(timeout: 3))
+    customProfile.click()
+
+    XCTAssertTrue(app.staticTexts["选择要暂停的服务"].waitForExistence(timeout: 3))
+    XCTAssertTrue(element(identifier: "custom-services.select-all", in: app).exists)
+    XCTAssertTrue(element(identifier: "custom-services.clear", in: app).exists)
+    let firstGroup = app.disclosureTriangles.firstMatch
+    XCTAssertTrue(firstGroup.exists)
+    firstGroup.click()
+    XCTAssertTrue(
+      element(identifier: "custom-services.group.intelligence.select-all", in: app)
+        .waitForExistence(timeout: 3)
+    )
+    XCTAssertTrue(element(identifier: "custom-services.group.intelligence.clear", in: app).exists)
+    XCTAssertTrue(
+      app.staticTexts
+        .matching(NSPredicate(format: "value BEGINSWITH '已记住 '"))
+        .firstMatch
+        .exists
+    )
+  }
+
+  func testInterruptedReceiptKeepsContinuationWithoutSafetyBanner() {
     let app = launch(.interrupted)
 
     XCTAssertTrue(element(identifier: "optimization.page", in: app).waitForExistence(timeout: 5))
-    XCTAssertTrue(app.staticTexts["发现未完成操作"].waitForExistence(timeout: 5))
+    XCTAssertFalse(app.staticTexts["发现未完成操作"].exists)
     XCTAssertTrue(app.buttons["继续验证"].exists)
+  }
 
-    app.buttons["查看回执"].click()
-    XCTAssertTrue(app.staticTexts["待确认步骤"].waitForExistence(timeout: 3))
-    let pendingChange = element(
-      identifier: "service-change.com.apple.suggestionsd",
-      in: app
-    )
-    XCTAssertTrue(pendingChange.waitForExistence(timeout: 3))
-    XCTAssertTrue(pendingChange.label.contains("系统建议"))
-    XCTAssertEqual(pendingChange.value as? String, "运行 → 暂停")
-    XCTAssertTrue(app.buttons["继续验证"].exists)
-    XCTAssertTrue(app.buttons["恢复基线"].exists)
+  func testDestructiveConfirmationIgnoresReturnKey() {
+    let app = launch(.ready)
+
+    let deviceSection = sectionControl("设备", in: app)
+    XCTAssertTrue(deviceSection.waitForExistence(timeout: 5))
+    deviceSection.click()
+    XCTAssertTrue(app.buttons["抹掉内容"].waitForExistence(timeout: 3))
+    app.buttons["抹掉内容"].click()
+
+    let dangerSheet = element(identifier: "danger-confirmation.sheet", in: app)
+    XCTAssertTrue(dangerSheet.waitForExistence(timeout: 3))
+    let confirmationField = app.textFields["确认文本"]
+    XCTAssertTrue(confirmationField.waitForExistence(timeout: 3))
+    confirmationField.click()
+    confirmationField.typeText("iPhone 17 Pro")
+
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(dangerSheet.exists)
+    XCTAssertFalse(element(identifier: "operation-preview.sheet", in: app).exists)
+
+    let confirmButton = app.buttons["确认抹掉"]
+    XCTAssertTrue(confirmButton.isEnabled)
+    confirmButton.click()
+
+    let previewSheet = element(identifier: "operation-preview.sheet", in: app)
+    XCTAssertTrue(previewSheet.waitForExistence(timeout: 3))
+    app.typeKey(.return, modifierFlags: [])
+    XCTAssertTrue(previewSheet.exists)
   }
 
   func testUnsupportedRuntimeKeepsOnlyBasicDeviceControls() {
@@ -128,7 +218,7 @@ final class SimulatorSlimmerUITests: XCTestCase {
       element(identifier: "runtime-unsupported.page", in: app).waitForExistence(timeout: 5)
     )
     XCTAssertTrue(app.staticTexts["此运行时尚未验证"].exists)
-    XCTAssertTrue(app.buttons["打开 Apple 模拟器"].exists)
+    XCTAssertTrue(app.buttons["显示 Apple 模拟器"].exists)
     XCTAssertFalse(app.buttons["优化此模拟器"].exists)
     XCTAssertFalse(app.buttons["扫描存储"].exists)
     XCTAssertFalse(app.buttons["克隆"].exists)
@@ -142,42 +232,6 @@ final class SimulatorSlimmerUITests: XCTestCase {
     XCTAssertTrue(
       element(identifier: "batch-optimization.empty", in: app).waitForExistence(timeout: 3)
     )
-  }
-
-  func testOpaqueReceiptsRemainReadOnlyAndExplainFailure() {
-    let app = launch(.opaqueReceipts)
-
-    let historyNavigation = element(identifier: "sidebar.history", in: app)
-    XCTAssertTrue(historyNavigation.waitForExistence(timeout: 5))
-    historyNavigation.click()
-    XCTAssertTrue(element(identifier: "history.page", in: app).waitForExistence(timeout: 5))
-
-    let unsupportedReceipt = element(
-      identifier: "history.receipt.2AF81128-F810-465B-9C9F-F9C702CC3752",
-      in: app
-    )
-    XCTAssertTrue(unsupportedReceipt.waitForExistence(timeout: 3))
-    XCTAssertTrue(unsupportedReceipt.label.contains("只读回执"))
-    unsupportedReceipt.click()
-    XCTAssertTrue(
-      element(identifier: "receipt.opaque.unsupportedSchema", in: app)
-        .waitForExistence(timeout: 3)
-    )
-    XCTAssertFalse(app.buttons["继续验证"].exists)
-    XCTAssertFalse(app.buttons["恢复基线"].exists)
-
-    let corruptedReceipt = element(
-      identifier: "history.receipt.A94AA544-95B3-4663-A31D-D78E2A1E139E",
-      in: app
-    )
-    XCTAssertTrue(corruptedReceipt.waitForExistence(timeout: 3))
-    XCTAssertTrue(corruptedReceipt.label.contains("回执损坏"))
-    corruptedReceipt.click()
-    XCTAssertTrue(
-      element(identifier: "receipt.opaque.corrupted", in: app).waitForExistence(timeout: 3)
-    )
-    XCTAssertFalse(app.buttons["继续验证"].exists)
-    XCTAssertFalse(app.buttons["恢复基线"].exists)
   }
 
   private func launch(_ fixture: Fixture) -> XCUIApplication {
@@ -203,6 +257,10 @@ final class SimulatorSlimmerUITests: XCTestCase {
 
   private func element(identifier: String, in app: XCUIApplication) -> XCUIElement {
     app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+  }
+
+  private func sectionControl(_ title: String, in app: XCUIApplication) -> XCUIElement {
+    app.radioButtons[title].firstMatch
   }
 
   private func assertBatchItem(

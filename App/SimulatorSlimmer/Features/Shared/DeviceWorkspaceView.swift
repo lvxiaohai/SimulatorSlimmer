@@ -24,23 +24,11 @@ struct DeviceWorkspaceView: View {
           DeviceHeader(device: device, model: model)
 
           Divider()
-          if model.isLoadingSnapshot, model.snapshot?.device.id != deviceID {
-            LoadingDetailView()
-          } else if let snapshot = model.snapshot, snapshot.device.id == deviceID {
-            if snapshot.optimizationSupport == .supported {
-              sectionPicker
-              sectionContent(snapshot)
-            } else {
-              unsupportedWorkspace(snapshot)
-            }
-          } else {
-            ContentUnavailableView(
-              "empty.snapshot.title",
-              systemImage: "waveform.path.ecg.rectangle",
-              description: Text("empty.snapshot.message")
-            )
-          }
+          sectionPicker
+          sectionContent(for: device)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
       } else {
         LoadingDetailView()
       }
@@ -55,15 +43,15 @@ struct DeviceWorkspaceView: View {
     }
     .pickerStyle(.segmented)
     .labelsHidden()
-    .frame(maxWidth: 380)
-    .frame(minHeight: InstrumentTheme.minimumHitSize)
+    .frame(maxWidth: 480)
+    .minimumHitArea()
     .padding(.horizontal, InstrumentTheme.pagePadding)
-    .padding(.vertical, 14)
+    .padding(.vertical, 10)
     .accessibilityLabel("device.section")
   }
 
-  private func unsupportedWorkspace(_ snapshot: DeviceSnapshot) -> some View {
-    VStack(spacing: 14) {
+  private func unsupportedFeature(_ snapshot: DeviceSnapshot) -> some View {
+    ScrollView {
       NoticeStrip(
         tone: snapshot.optimizationSupport == .unavailableRuntime ? .error : .warning,
         title: snapshot.optimizationSupport == .unavailableRuntime
@@ -73,24 +61,62 @@ struct DeviceWorkspaceView: View {
           ? snapshot.device.availabilityError ?? L10n.text("runtime.unavailable.message")
           : L10n.formatted("runtime.unsupported.message", snapshot.device.runtimeName)
       )
-      .padding(.horizontal, InstrumentTheme.pagePadding)
-      .padding(.top, 14)
-
-      DeviceManagementView(snapshot: snapshot, model: model)
+      .frame(maxWidth: 760)
+      .padding(InstrumentTheme.pagePadding)
+      .frame(maxWidth: .infinity, alignment: .top)
     }
-    .onAppear { model.selectedSection = .device }
     .accessibilityIdentifier("runtime-unsupported.page")
+  }
+
+  @ViewBuilder
+  private func sectionContent(for device: SimulatorDevice) -> some View {
+    switch model.selectedSection {
+    case .applications:
+      ApplicationsView(device: device, model: model)
+    case .optimization, .storage, .device:
+      snapshotDependentContent
+    }
+  }
+
+  @ViewBuilder
+  private var snapshotDependentContent: some View {
+    if let snapshot = model.snapshot, snapshot.device.id == deviceID {
+      sectionContent(snapshot)
+    } else if let message = model.snapshotLoadError {
+      ContentUnavailableView {
+        Label("error.inspect.title", systemImage: "exclamationmark.triangle")
+      } description: {
+        Text(message)
+      } actions: {
+        Button("action.retry") {
+          model.inspectSelectedDevice()
+        }
+        .buttonStyle(PressablePrimaryButtonStyle())
+      }
+    } else {
+      LoadingDetailView()
+    }
   }
 
   @ViewBuilder
   private func sectionContent(_ snapshot: DeviceSnapshot) -> some View {
     switch model.selectedSection {
     case .optimization:
-      OptimizationView(snapshot: snapshot, model: model)
+      if snapshot.optimizationSupport == .supported {
+        OptimizationView(snapshot: snapshot, model: model)
+      } else {
+        unsupportedFeature(snapshot)
+      }
     case .storage:
-      StorageView(snapshot: snapshot, model: model)
+      if snapshot.optimizationSupport == .supported {
+        StorageView(snapshot: snapshot, model: model)
+      } else {
+        unsupportedFeature(snapshot)
+      }
     case .device:
       DeviceManagementView(snapshot: snapshot, model: model)
+    case .applications:
+      EmptyView()
     }
   }
 }
@@ -98,6 +124,7 @@ struct DeviceWorkspaceView: View {
 private struct DeviceHeader: View {
   let device: SimulatorDevice
   let model: AppModel
+  @State private var isShowingShutdownConfirmation = false
 
   var body: some View {
     HStack(spacing: 14) {
@@ -111,62 +138,143 @@ private struct DeviceHeader: View {
       .frame(width: 44, height: 44)
       .accessibilityHidden(true)
 
-      VStack(alignment: .leading, spacing: 3) {
+      VStack(alignment: .leading, spacing: 2) {
         HStack(spacing: 8) {
           Text(device.name)
             .font(.title2.weight(.semibold))
+            .lineLimit(1)
+            .truncationMode(.middle)
           SimulatorStateChip(state: device.state)
         }
-        HStack(spacing: 8) {
-          Text(device.runtimeName)
-          Text("·")
-          Text(ValueFormatter.shortIdentifier(device.id.rawValue))
-            .monospaced()
-          Button {
-            model.copy(device.id.rawValue)
-          } label: {
-            Image(systemName: "doc.on.doc")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(device.name)
+        .accessibilityValue(device.state.localizedTitle)
+
+        Button {
+          model.copyUDID(device.id.rawValue)
+        } label: {
+          HStack(spacing: 8) {
+            Text(device.runtimeName)
+              .lineLimit(1)
+            Text("·")
+            HStack(spacing: 5) {
+              Text(device.id.rawValue)
+                .monospaced()
+                .fixedSize(horizontal: true, vertical: false)
+              Image(systemName: "doc.on.doc")
+                .accessibilityHidden(true)
+            }
+            .foregroundStyle(.secondary)
           }
-          .buttonStyle(.borderless)
-          .minimumHitArea()
-          .help("action.copy-udid")
-          .accessibilityLabel("action.copy-udid")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .padding(.vertical, 3)
+          .contentShape(Rectangle())
         }
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        .buttonStyle(.plain)
+        .help("action.copy-udid")
+        .accessibilityLabel("action.copy-udid")
+        .accessibilityValue("\(device.runtimeName)，\(device.id.rawValue)")
       }
+      .layoutPriority(1)
 
       Spacer()
 
-      Menu {
-        if model.latestRestorableReceipt != nil,
-          model.optimizationSupport(for: device.id) == .supported
-        {
+      if model.latestRestorableReceipt != nil,
+        model.optimizationSupport(for: device.id) == .supported
+      {
+        Menu {
           Button("action.restore-last", systemImage: "arrow.uturn.backward") {
             model.restoreLatest()
           }
+        } label: {
+          Image(systemName: "ellipsis.circle")
         }
-        Button("action.copy-udid", systemImage: "doc.on.doc") {
-          model.copy(device.id.rawValue)
-        }
-      } label: {
-        Image(systemName: "ellipsis.circle")
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .minimumHitArea()
+        .accessibilityLabel("action.more")
       }
-      .menuStyle(.borderlessButton)
-      .menuIndicator(.hidden)
-      .minimumHitArea()
-      .accessibilityLabel("action.more")
 
-      Button {
-        model.runDeviceOperation(.openSimulator)
-      } label: {
-        Label("action.open-simulator", systemImage: "rectangle.on.rectangle")
+      switch device.state {
+      case .shutdown:
+        Button {
+          model.runDeviceOperation(.boot)
+        } label: {
+          compactActionLabel(title: "action.boot", symbol: "power")
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.mint)
+        .disabled(isActionDisabled)
+        .minimumHitArea()
+        .help("action.boot.summary")
+        .accessibilityLabel("action.boot")
+        .accessibilityIdentifier("device.header.boot")
+
+      case .booted:
+        Button {
+          isShowingShutdownConfirmation = true
+        } label: {
+          compactActionLabel(title: "action.shutdown", symbol: "power")
+        }
+        .buttonStyle(.bordered)
+        .tint(.orange)
+        .disabled(isActionDisabled)
+        .minimumHitArea()
+        .help("action.shutdown.summary")
+        .accessibilityLabel("action.shutdown")
+        .accessibilityIdentifier("device.header.shutdown")
+
+        Button {
+          model.showSelectedSimulator()
+        } label: {
+          compactActionLabel(
+            title: "action.show-simulator",
+            symbol: "macwindow.on.rectangle"
+          )
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(.mint)
+        .disabled(isActionDisabled)
+        .minimumHitArea()
+        .help("action.open-simulator.summary")
+        .accessibilityLabel("action.open-simulator")
+        .accessibilityIdentifier("device.header.show-simulator")
+
+      case .creating, .shuttingDown:
+        ProgressView()
+          .controlSize(.small)
+          .accessibilityLabel(device.state.localizedTitle)
+
+      case .unavailable, .unknown:
+        EmptyView()
       }
-      .disabled(model.isDeviceBusy(device.id) || !device.isAvailable)
-      .minimumHitArea()
     }
     .padding(.horizontal, InstrumentTheme.pagePadding)
-    .padding(.vertical, 14)
+    .padding(.vertical, 10)
     .background(.bar)
+    .confirmationDialog(
+      "operation.shutdown",
+      isPresented: $isShowingShutdownConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("action.shutdown") {
+        model.runDeviceOperation(.shutdown)
+      }
+      Button("action.cancel", role: .cancel) {}
+    } message: {
+      Text("action.shutdown.summary")
+    }
+  }
+
+  private var isActionDisabled: Bool {
+    model.isDeviceBusy(device.id) || !device.isAvailable
+  }
+
+  private func compactActionLabel(title: LocalizedStringKey, symbol: String) -> some View {
+    ViewThatFits(in: .horizontal) {
+      Label(title, systemImage: symbol)
+      Image(systemName: symbol)
+    }
   }
 }

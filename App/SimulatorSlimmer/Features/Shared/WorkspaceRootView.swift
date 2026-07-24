@@ -6,35 +6,53 @@ struct WorkspaceRootView: View {
   @Bindable var model: AppModel
   @AppStorage("automaticRefresh") private var automaticRefresh = true
   @AppStorage("automaticRefreshInterval") private var automaticRefreshInterval = 30.0
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @Environment(\.scenePhase) private var scenePhase
+  @State private var isRefreshHovered = false
 
   var body: some View {
     NavigationSplitView {
       SimulatorSidebar(model: model)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 248, max: 300)
+        .navigationSplitViewColumnWidth(min: 250, ideal: 280, max: 340)
     } detail: {
       detail
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .dismissWindowTextEditingOnTap()
+        .overlay(alignment: .bottom) {
+          if let toast = model.toast {
+            InstrumentToast(message: toast.message)
+              .padding(.bottom, 20)
+              .transition(toastTransition)
+              .allowsHitTesting(false)
+          }
+        }
+        .animation(
+          reduceMotion ? nil : .easeOut(duration: 0.18),
+          value: model.toast?.id
+        )
     }
     .navigationSplitViewStyle(.balanced)
     .toolbar {
-      ToolbarItemGroup(placement: .primaryAction) {
-        if model.isLoadingOverview {
-          ProgressView()
-            .controlSize(.small)
-            .accessibilityLabel("accessibility.refreshing")
-        }
-
+      ToolbarItem(placement: .primaryAction) {
         Button {
+          WindowFocus.endTextEditing()
           model.refreshOverview()
         } label: {
-          Label("action.refresh", systemImage: "arrow.clockwise")
+          RefreshToolbarIcon(isRefreshing: model.isLoadingOverview)
         }
+        .buttonStyle(RefreshToolbarButtonStyle(isHovered: isRefreshHovered))
         .disabled(model.isLoadingOverview)
-        .minimumHitArea()
+        .onHover { isRefreshHovered = $0 }
+        .accessibilityLabel(
+          model.isLoadingOverview
+            ? L10n.text("accessibility.refreshing")
+            : L10n.text("action.refresh")
+        )
+        .accessibilityIdentifier("toolbar.refresh")
         .help("action.refresh.help")
       }
     }
+    .suppressInitialFocus()
     .onAppear {
       model.load()
       positionWindowOnBuiltInDisplayIfRequested()
@@ -50,9 +68,22 @@ struct WorkspaceRootView: View {
         } catch {
           return
         }
-        guard !model.hasRunningOperation else { continue }
+        guard !model.hasRunningOperation, !model.isLoadingOverview else { continue }
         model.refreshOverview()
       }
+    }
+    .task(id: model.toast?.id) {
+      guard let toastID = model.toast?.id else { return }
+      #if DEBUG
+        guard !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { return }
+      #endif
+      do {
+        try await Task.sleep(for: .seconds(3), clock: .continuous)
+      } catch {
+        return
+      }
+      guard model.toast?.id == toastID else { return }
+      model.toast = nil
     }
     .onChange(of: model.sidebarSelection) { _, selection in
       if case .device(let id) = selection {
@@ -67,12 +98,15 @@ struct WorkspaceRootView: View {
         confirm: { model.runPreviewedOperation() }
       )
     }
-    .sheet(item: $model.batchPreviewPresentation) { presentation in
-      BatchPreviewSheet(
-        presentation: presentation,
-        cancel: { model.dismissBatchPreview() },
-        confirm: { model.confirmBatchPreview() }
-      )
+    .sheet(item: $model.workspaceModal) { modal in
+      switch modal {
+      case .batchOptimization:
+        BatchOptimizationSheet(model: model)
+      case .createSimulator:
+        CreateSimulatorSheet(model: model)
+      case .settings:
+        SettingsSheet(model: model)
+      }
     }
     .sheet(item: $model.dangerPresentation) { presentation in
       DangerConfirmationSheet(
@@ -80,22 +114,6 @@ struct WorkspaceRootView: View {
         cancel: { model.dangerPresentation = nil },
         confirm: { cloneName in
           model.confirmDanger(presentation, cloneName: cloneName)
-        }
-      )
-    }
-    .sheet(item: $model.receiptPresentation) { receipt in
-      ReceiptDetailSheet(
-        receipt: receipt,
-        canContinueVerification: model.canContinueVerification(from: receipt),
-        canRestore: model.canRestore(from: receipt),
-        dismiss: { model.receiptPresentation = nil },
-        continueVerification: {
-          model.receiptPresentation = nil
-          model.continueVerification(from: receipt)
-        },
-        restore: {
-          model.receiptPresentation = nil
-          model.restore(from: receipt)
         }
       )
     }
@@ -112,6 +130,14 @@ struct WorkspaceRootView: View {
     RefreshConfiguration(
       isEnabled: automaticRefresh && scenePhase == .active,
       interval: automaticRefreshInterval
+    )
+  }
+
+  private var toastTransition: AnyTransition {
+    guard !reduceMotion else { return .identity }
+    return .asymmetric(
+      insertion: .opacity.combined(with: .offset(y: 8)),
+      removal: .opacity.combined(with: .offset(y: -6))
     )
   }
 
@@ -159,12 +185,6 @@ struct WorkspaceRootView: View {
       switch model.sidebarSelection {
       case .device(let deviceID):
         DeviceWorkspaceView(deviceID: deviceID, model: model)
-      case .batchOptimization:
-        BatchOptimizationView(model: model)
-      case .history:
-        HistoryView(model: model)
-      case .settings:
-        SettingsView(model: model)
       case nil:
         NoSelectionView(model: model)
       }
@@ -172,11 +192,384 @@ struct WorkspaceRootView: View {
   }
 }
 
+private struct WorkspaceSheetHeader: View {
+  let title: LocalizedStringResource
+  let subtitle: LocalizedStringResource
+  let systemImage: String
+
+  var body: some View {
+    HStack(alignment: .center, spacing: 14) {
+      Image(systemName: systemImage)
+        .font(.system(size: 20, weight: .semibold))
+        .foregroundStyle(.mint)
+        .frame(width: 44, height: 44)
+        .background(
+          Color.mint.opacity(0.12),
+          in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .accessibilityHidden(true)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(title)
+          .font(.title3.weight(.semibold))
+        Text(subtitle)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+    }
+    .padding(.horizontal, 24)
+    .padding(.vertical, 18)
+  }
+}
+
+private struct BatchOptimizationSheet: View {
+  @Bindable var model: AppModel
+
+  var body: some View {
+    VStack(spacing: 0) {
+      WorkspaceSheetHeader(
+        title: "sidebar.batch-optimization",
+        subtitle: "batch.subtitle",
+        systemImage: "rectangle.stack.badge.play"
+      )
+      Divider()
+      BatchOptimizationView(model: model)
+      Divider()
+      HStack {
+        if model.batchRun?.isRunning == true {
+          Label("batch.status.running", systemImage: "progress.indicator")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer()
+        Button("action.close") { model.dismissWorkspaceModal() }
+          .keyboardShortcut(.cancelAction)
+          .minimumHitArea()
+      }
+      .padding(.horizontal, 24)
+      .padding(.vertical, 14)
+    }
+    .frame(minWidth: 820, idealWidth: 900, minHeight: 640, idealHeight: 720)
+    .background(Color.instrumentBackground)
+    .accessibilityIdentifier("batch-optimization.sheet")
+  }
+}
+
+private struct SettingsSheet: View {
+  @Bindable var model: AppModel
+
+  var body: some View {
+    VStack(spacing: 0) {
+      WorkspaceSheetHeader(
+        title: "sidebar.settings",
+        subtitle: "settings.subtitle",
+        systemImage: "gearshape"
+      )
+      Divider()
+      SettingsView()
+      Divider()
+      HStack {
+        Spacer()
+        Button("action.done") { model.dismissWorkspaceModal() }
+          .keyboardShortcut(.defaultAction)
+          .minimumHitArea()
+      }
+      .padding(.horizontal, 24)
+      .padding(.vertical, 14)
+    }
+    .frame(width: 760, height: 620)
+    .background(Color.instrumentBackground)
+    .accessibilityIdentifier("settings.sheet")
+  }
+}
+
+private struct CreateSimulatorSheet: View {
+  @Bindable var model: AppModel
+  @State private var name = ""
+  @State private var selectedRuntimeID = ""
+  @State private var selectedDeviceTypeID = ""
+
+  private var runtimes: [SimulatorRuntime] {
+    model.simulatorCreationOptions?.runtimes ?? []
+  }
+
+  private var selectedRuntime: SimulatorRuntime? {
+    runtimes.first { $0.id == selectedRuntimeID }
+  }
+
+  private var compatibleDeviceTypes: [SimulatorDeviceType] {
+    guard let selectedRuntime else { return [] }
+    return (model.simulatorCreationOptions?.deviceTypes ?? [])
+      .filter { $0.supports(runtimeVersion: selectedRuntime.version) }
+  }
+
+  private var deviceTypeFamilies: [String] {
+    ["iPhone", "iPad"].filter { family in
+      compatibleDeviceTypes.contains { $0.productFamily == family }
+    }
+  }
+
+  private var selectedDeviceType: SimulatorDeviceType? {
+    compatibleDeviceTypes.first { $0.id == selectedDeviceTypeID }
+  }
+
+  private var effectiveName: String {
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmedName.isEmpty ? selectedDeviceType?.name ?? "" : trimmedName
+  }
+
+  private var namePlaceholder: String {
+    selectedDeviceType?.name ?? L10n.text("create-simulator.name.placeholder")
+  }
+
+  private var canCreate: Bool {
+    !effectiveName.isEmpty
+      && !selectedRuntimeID.isEmpty
+      && !selectedDeviceTypeID.isEmpty
+      && !model.isCreatingSimulator
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      WorkspaceSheetHeader(
+        title: "create-simulator.title",
+        subtitle: "create-simulator.subtitle",
+        systemImage: "plus.rectangle.on.rectangle"
+      )
+      Divider()
+
+      Group {
+        if model.isLoadingSimulatorCreationOptions,
+          model.simulatorCreationOptions == nil
+        {
+          VStack(spacing: 12) {
+            ProgressView()
+            Text("create-simulator.loading")
+              .font(.callout)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if model.simulatorCreationOptions == nil {
+          ContentUnavailableView {
+            Label("create-simulator.unavailable.title", systemImage: "exclamationmark.triangle")
+          } description: {
+            Text(model.simulatorCreationError ?? L10n.text("create-simulator.unavailable.message"))
+          } actions: {
+            Button("action.retry") { model.loadSimulatorCreationOptions(force: true) }
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+          creationForm
+        }
+      }
+      .padding(24)
+
+      Divider()
+      HStack(spacing: 12) {
+        Spacer()
+        Button("action.cancel") { model.dismissWorkspaceModal() }
+          .keyboardShortcut(.cancelAction)
+          .disabled(model.isCreatingSimulator)
+          .minimumHitArea()
+        Button {
+          model.createSimulator(
+            name: effectiveName,
+            runtimeID: selectedRuntimeID,
+            deviceTypeID: selectedDeviceTypeID
+          )
+        } label: {
+          if model.isCreatingSimulator {
+            ProgressView()
+              .controlSize(.small)
+              .accessibilityLabel("create-simulator.creating")
+          } else {
+            Label("create-simulator.action.create", systemImage: "plus")
+          }
+        }
+        .buttonStyle(PressablePrimaryButtonStyle())
+        .keyboardShortcut(.defaultAction)
+        .disabled(!canCreate)
+      }
+      .padding(.horizontal, 24)
+      .padding(.vertical, 14)
+    }
+    .frame(width: 560, height: 470)
+    .background(Color.instrumentBackground)
+    .interactiveDismissDisabled(model.isCreatingSimulator)
+    .onAppear(perform: configureDefaults)
+    .onChange(of: model.isLoadingSimulatorCreationOptions) { _, isLoading in
+      if !isLoading { configureDefaults() }
+    }
+    .onChange(of: selectedRuntimeID) { _, _ in
+      reconcileDeviceType()
+    }
+    .accessibilityIdentifier("create-simulator.sheet")
+  }
+
+  private var creationForm: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      InstrumentCard {
+        VStack(spacing: 0) {
+          formRow(title: "create-simulator.runtime") {
+            Picker("create-simulator.runtime", selection: $selectedRuntimeID) {
+              ForEach(runtimes) { runtime in
+                Text(runtime.name).tag(runtime.id)
+              }
+            }
+            .labelsHidden()
+            .frame(width: 220)
+          }
+          Divider()
+          formRow(title: "create-simulator.device-type") {
+            Picker("create-simulator.device-type", selection: $selectedDeviceTypeID) {
+              ForEach(deviceTypeFamilies, id: \.self) { family in
+                Section {
+                  ForEach(
+                    compatibleDeviceTypes.filter { $0.productFamily == family }
+                  ) { deviceType in
+                    Text(deviceType.name).tag(deviceType.id)
+                  }
+                } header: {
+                  Text(family)
+                }
+              }
+            }
+            .labelsHidden()
+            .frame(width: 220)
+          }
+          Divider()
+          formRow(title: "create-simulator.name") {
+            TextField(
+              "create-simulator.name",
+              text: $name,
+              prompt: Text(namePlaceholder)
+            )
+              .textFieldStyle(.roundedBorder)
+              .frame(width: 220)
+          }
+        }
+      }
+
+      if let error = model.simulatorCreationError {
+        NoticeStrip(
+          tone: .warning,
+          title: L10n.text("create-simulator.failed.title"),
+          message: error
+        )
+      }
+      Spacer(minLength: 0)
+    }
+  }
+
+  private func formRow<Control: View>(
+    title: LocalizedStringResource,
+    @ViewBuilder control: () -> Control
+  ) -> some View {
+    HStack(spacing: 20) {
+      Text(title)
+        .font(.body.weight(.medium))
+      Spacer()
+      control()
+    }
+    .frame(minHeight: 54)
+  }
+
+  private func configureDefaults() {
+    guard !runtimes.isEmpty else { return }
+    if !runtimes.contains(where: { $0.id == selectedRuntimeID }) {
+      selectedRuntimeID = runtimes[0].id
+    }
+    reconcileDeviceType()
+  }
+
+  private func reconcileDeviceType() {
+    guard !compatibleDeviceTypes.isEmpty else {
+      selectedDeviceTypeID = ""
+      return
+    }
+    if compatibleDeviceTypes.contains(where: { $0.id == selectedDeviceTypeID }) {
+      return
+    }
+
+    let preferredID = model.selectedDevice?.deviceTypeIdentifier
+    let preferred =
+      preferredID.flatMap { id in compatibleDeviceTypes.first { $0.id == id } }
+      ?? compatibleDeviceTypes.first {
+        $0.name.localizedCaseInsensitiveContains("iPhone 17 Pro")
+      }
+      ?? compatibleDeviceTypes[0]
+    selectedDeviceTypeID = preferred.id
+  }
+}
+
+private struct RefreshToolbarIcon: View {
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  let isRefreshing: Bool
+
+  var body: some View {
+    ZStack {
+      Image(systemName: "arrow.clockwise")
+        .opacity(isRefreshing ? 0 : 1)
+        .scaleEffect(isRefreshing && !reduceMotion ? 0.25 : 1)
+        .blur(radius: isRefreshing && !reduceMotion ? 4 : 0)
+
+      ProgressView()
+        .controlSize(.small)
+        .opacity(isRefreshing ? 1 : 0)
+        .scaleEffect(isRefreshing || reduceMotion ? 1 : 0.25)
+        .blur(radius: isRefreshing || reduceMotion ? 0 : 4)
+    }
+    .frame(
+      width: InstrumentTheme.minimumHitSize,
+      height: InstrumentTheme.minimumHitSize
+    )
+    .contentShape(Circle())
+    .animation(
+      reduceMotion ? nil : .easeOut(duration: 0.3),
+      value: isRefreshing
+    )
+  }
+}
+
+private struct RefreshToolbarButtonStyle: ButtonStyle {
+  let isHovered: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .foregroundStyle(isEnabled ? Color.primary : Color.secondary)
+      .background {
+        Circle()
+          .fill(backgroundColor(isPressed: configuration.isPressed))
+      }
+      .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
+      .opacity(isEnabled ? 1 : 0.72)
+      .animation(
+        reduceMotion ? nil : .easeOut(duration: 0.1),
+        value: configuration.isPressed
+      )
+      .animation(
+        reduceMotion ? nil : .easeOut(duration: 0.12),
+        value: isHovered
+      )
+  }
+
+  private func backgroundColor(isPressed: Bool) -> Color {
+    guard isEnabled else { return .clear }
+    if isPressed {
+      return Color.primary.opacity(0.10)
+    }
+    return isHovered ? Color.primary.opacity(0.055) : .clear
+  }
+}
+
 private struct BatchOptimizationView: View {
   @Bindable var model: AppModel
 
   private let profiles: [OptimizationProfile] = [
-    .conservative, .balanced, .efficient,
+    .conservative, .balanced, .efficient, .custom,
   ]
 
   private var runIsActive: Bool { model.batchRun?.isRunning == true }
@@ -191,10 +584,7 @@ private struct BatchOptimizationView: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      pageHeader
-      Divider()
-
+    Group {
       if model.availableBatchDevices.isEmpty, model.batchRun == nil {
         ContentUnavailableView {
           Label("batch.empty.title", systemImage: "rectangle.stack.badge.minus")
@@ -208,7 +598,7 @@ private struct BatchOptimizationView: View {
         .accessibilityIdentifier("batch-optimization.empty")
       } else {
         ScrollView {
-          LazyVStack(alignment: .leading, spacing: 20) {
+          LazyVStack(alignment: .leading, spacing: 16) {
             configurationPanel
             if model.isPreparingBatchPreview {
               batchPreviewProgressPanel
@@ -224,34 +614,14 @@ private struct BatchOptimizationView: View {
       }
     }
     .background(Color.instrumentBackground)
-    .navigationTitle("sidebar.batch-optimization")
-    .accessibilityIdentifier("batch-optimization.page")
-  }
-
-  private var pageHeader: some View {
-    HStack(spacing: 16) {
-      VStack(alignment: .leading, spacing: 3) {
-        Text("batch.title")
-          .font(.title2.weight(.semibold))
-        Text("batch.subtitle")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      Spacer()
-      if let run = model.batchRun {
-        Label(
-          run.isRunning
-            ? L10n.text("batch.status.running")
-            : L10n.text("batch.status.finished"),
-          systemImage: run.isRunning ? "progress.indicator" : "checkmark.circle.fill"
-        )
-        .font(.caption.weight(.semibold))
-        .foregroundStyle(run.isRunning ? Color.mint : Color.secondary)
-      }
+    .sheet(item: $model.batchPreviewPresentation) { presentation in
+      BatchPreviewSheet(
+        presentation: presentation,
+        cancel: { model.dismissBatchPreview() },
+        confirm: { model.confirmBatchPreview() }
+      )
     }
-    .padding(.horizontal, InstrumentTheme.pagePadding)
-    .padding(.vertical, 16)
-    .background(.bar)
+    .accessibilityIdentifier("batch-optimization.page")
   }
 
   private var configurationPanel: some View {
@@ -274,13 +644,46 @@ private struct BatchOptimizationView: View {
         .accessibilityLabel("batch.profile.title")
 
         HStack(alignment: .top, spacing: 10) {
-          Image(systemName: model.batchProfile == .efficient ? "bolt.fill" : "info.circle.fill")
-            .foregroundStyle(model.batchProfile == .efficient ? .orange : .mint)
+          Image(systemName: profileSummarySymbol)
+            .foregroundStyle(profileSummaryColor)
             .accessibilityHidden(true)
-          Text(model.batchProfile.localizedSummary)
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+          VStack(alignment: .leading, spacing: 3) {
+            Text(model.batchProfile.localizedSummary)
+            if model.batchProfile == .custom {
+              Text(
+                L10n.formatted(
+                  "batch.custom-selection.summary",
+                  model.customDisabledLabels.count
+                )
+              )
+              .font(.caption)
+            }
+          }
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if model.batchProfile == .custom {
+          Divider()
+          if let snapshot = model.customServiceSnapshot {
+            CustomServicePicker(snapshot: snapshot, model: model)
+              .disabled(configurationLocked)
+          } else if model.isLoadingCustomServiceSnapshot {
+            HStack(spacing: 10) {
+              ProgressView()
+                .controlSize(.small)
+              Text("batch.custom-selection.loading")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            }
+            .frame(minHeight: InstrumentTheme.minimumHitSize)
+          } else {
+            Label("batch.custom-selection.unavailable", systemImage: "exclamationmark.circle")
+              .font(.callout)
+              .foregroundStyle(.secondary)
+            .frame(minHeight: InstrumentTheme.minimumHitSize)
+          }
         }
 
         Divider()
@@ -363,6 +766,21 @@ private struct BatchOptimizationView: View {
         }
       }
     }
+  }
+
+  private var profileSummarySymbol: String {
+    switch model.batchProfile {
+    case .efficient:
+      "bolt.fill"
+    case .custom:
+      "slider.horizontal.3"
+    default:
+      "info.circle.fill"
+    }
+  }
+
+  private var profileSummaryColor: Color {
+    model.batchProfile == .efficient ? .orange : .mint
   }
 
   private var batchPreviewProgressPanel: some View {
@@ -454,7 +872,7 @@ private struct BatchOptimizationView: View {
 
         VStack(spacing: 0) {
           ForEach(run.items) { item in
-            BatchQueueRow(item: item, showReceipt: model.showReceipt)
+            BatchQueueRow(item: item)
             if item.id != run.items.last?.id { Divider() }
           }
         }
@@ -486,7 +904,12 @@ private struct BatchDeviceSelectionRow: View {
   let isBusy: Bool
 
   var body: some View {
-    Toggle(isOn: $isSelected) {
+    HStack(alignment: .center, spacing: 10) {
+      Toggle("", isOn: $isSelected)
+        .labelsHidden()
+        .toggleStyle(.checkbox)
+        .minimumHitArea()
+
       HStack(spacing: 10) {
         Image(
           systemName: device.deviceTypeIdentifier.localizedCaseInsensitiveContains("ipad")
@@ -512,9 +935,7 @@ private struct BatchDeviceSelectionRow: View {
         }
       }
     }
-    .toggleStyle(.checkbox)
     .frame(minHeight: 48)
-    .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
     .accessibilityLabel(device.name)
     .accessibilityValue(
@@ -579,9 +1000,16 @@ private struct BatchSummaryView: View {
 
 private struct BatchQueueRow: View {
   let item: BatchQueueItem
-  let showReceipt: (OperationReceipt) -> Void
 
   var body: some View {
+    rowContent
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel(item.device.name)
+      .accessibilityValue(accessibilityValue)
+      .accessibilityIdentifier("batch.queue.item.\(item.id.rawValue)")
+  }
+
+  private var rowContent: some View {
     HStack(spacing: 12) {
       Image(systemName: item.status.symbolName)
         .symbolRenderingMode(.hierarchical)
@@ -601,31 +1029,18 @@ private struct BatchQueueRow: View {
           .foregroundStyle(.secondary)
           .lineLimit(2)
       }
-      .accessibilityElement(children: .combine)
-      .accessibilityLabel(item.device.name)
-      .accessibilityValue(
-        "\(item.status.localizedTitle)，\(item.detail ?? item.device.runtimeName)"
-      )
-      .accessibilityIdentifier("batch.queue.item.\(item.id.rawValue)")
       Spacer(minLength: 8)
       if item.status == .running {
         ProgressView()
           .controlSize(.mini)
           .accessibilityLabel("accessibility.device-operation-running")
       }
-      if let receipt = item.receipt {
-        Button {
-          showReceipt(receipt)
-        } label: {
-          Image(systemName: "doc.text.magnifyingglass")
-        }
-        .buttonStyle(.borderless)
-        .minimumHitArea()
-        .help("receipt.view")
-        .accessibilityLabel("receipt.view")
-      }
     }
-    .frame(minHeight: 52)
+    .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+  }
+
+  private var accessibilityValue: String {
+    "\(item.status.localizedTitle)，\(item.detail ?? item.device.runtimeName)"
   }
 }
 

@@ -5,6 +5,7 @@ struct StorageView: View {
   let snapshot: DeviceSnapshot
   @Bindable var model: AppModel
   @State private var showingDetails = false
+  @State private var isShowingShutdownConfirmation = false
 
   private var plan: StoragePlan? { snapshot.latestStoragePlan }
 
@@ -33,29 +34,37 @@ struct StorageView: View {
   }
 
   var body: some View {
-    ScrollView {
-      LazyVStack(alignment: .leading, spacing: 20) {
-        operationState
+    InstrumentPageScroll {
+      operationState
 
-        if requiresShutdown {
-          shutdownRequiredNotice
-        }
-
-        if let plan {
-          storageOverview(plan)
-          categoriesPanel(plan)
-        } else {
-          emptyScanState
-        }
+      if requiresShutdown {
+        shutdownRequiredNotice
       }
-      .padding(.horizontal, InstrumentTheme.pagePadding)
-      .padding(.bottom, InstrumentTheme.pagePadding)
+
+      if let plan {
+        storageOverview(plan)
+        categoriesPanel(plan)
+      } else {
+        emptyScanState
+      }
     }
     .accessibilityIdentifier("storage.page")
     .sheet(isPresented: $showingDetails) {
       if let plan {
         StorageDetailsSheet(plan: plan)
       }
+    }
+    .confirmationDialog(
+      "operation.shutdown",
+      isPresented: $isShowingShutdownConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("action.shutdown") {
+        model.runDeviceOperation(.shutdown)
+      }
+      Button("action.cancel", role: .cancel) {}
+    } message: {
+      Text("action.shutdown.summary")
     }
   }
 
@@ -65,7 +74,8 @@ struct StorageView: View {
       title: L10n.text("storage.shutdown-required.title"),
       message: L10n.text("storage.shutdown-required.message"),
       actionTitle: canRequestShutdown ? L10n.text("action.shutdown") : nil,
-      action: canRequestShutdown ? { model.runDeviceOperation(.shutdown) } : nil
+      action: canRequestShutdown ? { isShowingShutdownConfirmation = true } : nil,
+      actionSymbol: canRequestShutdown ? "power" : nil
     )
     .accessibilityIdentifier("storage.shutdown-required")
   }
@@ -83,10 +93,7 @@ struct StorageView: View {
       } else if let receipt = operation.receipt,
         receipt.kind == .scanStorage || receipt.kind == .cleanStorage
       {
-        ReceiptResultBanner(
-          receipt: receipt,
-          showReceipt: { model.showReceipt(receipt) }
-        )
+        OperationResultBanner(receipt: receipt)
       } else if let message = operation.failureMessage,
         operation.operation.kind == .scanStorage || operation.operation.kind == .cleanStorage
       {
@@ -110,29 +117,44 @@ struct StorageView: View {
   }
 
   private func storageOverview(_ plan: StoragePlan) -> some View {
-    HStack(spacing: 16) {
-      MetricCard(
-        eyebrow: "storage.total",
-        value: ValueFormatter.bytes(plan.totalBytes),
-        unitDetail: L10n.formatted(
-          "storage.scanned-at",
-          plan.generatedAt.formatted(date: .omitted, time: .shortened)
-        ),
-        symbol: "internaldrive",
-        tint: .blue
-      )
-
-      MetricCard(
-        eyebrow: "storage.cleanable",
-        value: ValueFormatter.bytes(plan.cleanableBytes),
-        unitDetail: L10n.formatted("storage.selected", ValueFormatter.bytes(selectedBytes)),
-        symbol: "sparkles",
-        tint: .mint,
-        progress: plan.totalBytes == 0
-          ? 0
-          : Double(plan.cleanableBytes) / Double(plan.totalBytes)
-      )
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 14) {
+        totalStorageMetric(plan)
+          .frame(minWidth: 230)
+        cleanableStorageMetric(plan)
+          .frame(minWidth: 230)
+      }
+      VStack(spacing: 12) {
+        totalStorageMetric(plan)
+        cleanableStorageMetric(plan)
+      }
     }
+  }
+
+  private func totalStorageMetric(_ plan: StoragePlan) -> some View {
+    MetricCard(
+      eyebrow: "storage.total",
+      value: ValueFormatter.bytes(plan.totalBytes),
+      unitDetail: L10n.formatted(
+        "storage.scanned-at",
+        plan.generatedAt.formatted(date: .omitted, time: .shortened)
+      ),
+      symbol: "internaldrive",
+      tint: .blue
+    )
+  }
+
+  private func cleanableStorageMetric(_ plan: StoragePlan) -> some View {
+    MetricCard(
+      eyebrow: "storage.cleanable",
+      value: ValueFormatter.bytes(plan.cleanableBytes),
+      unitDetail: L10n.formatted("storage.selected", ValueFormatter.bytes(selectedBytes)),
+      symbol: "sparkles",
+      tint: .mint,
+      progress: plan.totalBytes == 0
+        ? 0
+        : Double(plan.cleanableBytes) / Double(plan.totalBytes)
+    )
   }
 
   private func categoriesPanel(_ plan: StoragePlan) -> some View {
@@ -175,72 +197,86 @@ struct StorageView: View {
 
         Divider()
 
-        HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 4) {
           Label("storage.safety-note", systemImage: "checkmark.shield.fill")
             .font(.caption)
             .foregroundStyle(.secondary)
-          Spacer()
-          Button("action.view-details") {
-            showingDetails = true
+          ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+              Spacer()
+              detailsAction(plan)
+              rescanAction
+              cleanupAction
+            }
+            VStack(alignment: .trailing, spacing: 4) {
+              detailsAction(plan)
+              rescanAction
+              cleanupAction
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
           }
-          .disabled(plan.items.isEmpty)
-          .minimumHitArea()
-
-          Button("action.rescan") {
-            model.scanStorage()
-          }
-          .disabled(!canRunStorageOperations)
-          .minimumHitArea()
-
-          Button {
-            model.requestStorageCleanup()
-          } label: {
-            Label(
-              L10n.formatted("action.clean-bytes", ValueFormatter.bytes(selectedBytes)),
-              systemImage: "sparkles"
-            )
-          }
-          .buttonStyle(PressablePrimaryButtonStyle())
-          .disabled(selectedCategories.isEmpty || !canRunStorageOperations)
         }
       }
     }
   }
 
-  private var emptyScanState: some View {
-    InstrumentCard {
-      VStack(spacing: 18) {
-        ZStack {
-          Circle()
-            .fill(Color.mint.opacity(0.1))
-          Image(systemName: "externaldrive.badge.magnifyingglass")
-            .font(.system(size: 28, weight: .medium))
-            .foregroundStyle(.mint)
-        }
-        .frame(width: 64, height: 64)
-        .accessibilityHidden(true)
-
-        VStack(spacing: 6) {
-          Text("storage.empty.title")
-            .font(.title3.weight(.semibold))
-          Text("storage.empty.message")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .multilineTextAlignment(.center)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-
-        Button {
-          model.scanStorage()
-        } label: {
-          Label("action.scan-storage", systemImage: "magnifyingglass")
-        }
-        .buttonStyle(PressablePrimaryButtonStyle())
-        .disabled(!canRunStorageOperations)
-      }
-      .frame(maxWidth: .infinity)
-      .padding(.vertical, 36)
+  private func detailsAction(_ plan: StoragePlan) -> some View {
+    Button("action.view-details") {
+      showingDetails = true
     }
+    .disabled(plan.items.isEmpty)
+    .minimumHitArea()
+  }
+
+  private var rescanAction: some View {
+    Button("action.rescan") {
+      model.scanStorage()
+    }
+    .disabled(!canRunStorageOperations)
+    .minimumHitArea()
+    .help(
+      canRunStorageOperations
+        ? L10n.text("action.rescan")
+        : L10n.text("storage.shutdown-required.title")
+    )
+  }
+
+  private var cleanupAction: some View {
+    Button {
+      model.requestStorageCleanup()
+    } label: {
+      Label(
+        L10n.formatted("action.clean-bytes", ValueFormatter.bytes(selectedBytes)),
+        systemImage: "sparkles"
+      )
+    }
+    .buttonStyle(PressablePrimaryButtonStyle())
+    .disabled(selectedCategories.isEmpty || !canRunStorageOperations)
+    .help(
+      canRunStorageOperations
+        ? L10n.text("storage.safety-note")
+        : L10n.text("storage.shutdown-required.title")
+    )
+  }
+
+  private var emptyScanState: some View {
+    InstrumentEmptyState(
+      symbol: "externaldrive",
+      badgeSymbol: "magnifyingglass",
+      tint: .mint,
+      title: L10n.text("storage.empty.title"),
+      message: L10n.text("storage.empty.message")
+    ) {
+      Button {
+        model.scanStorage()
+      } label: {
+        Label("action.scan-storage", systemImage: "magnifyingglass")
+      }
+      .buttonStyle(PressablePrimaryButtonStyle())
+      .disabled(!canRunStorageOperations)
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 8)
   }
 }
 
@@ -314,6 +350,7 @@ private struct StorageDetailsSheet: View {
       .padding(16)
     }
     .frame(minWidth: 620, minHeight: 480)
+    .suppressInitialFocus()
     .accessibilityIdentifier("storage-details.sheet")
   }
 }
@@ -356,6 +393,8 @@ private struct StorageCategoryRow: View {
             .foregroundStyle(.secondary)
         }
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
     }
     .toggleStyle(.checkbox)
     .disabled(!isEnabled)
