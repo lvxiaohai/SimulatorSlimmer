@@ -1549,7 +1549,6 @@ final class MenuBarModel {
     refreshTask?.cancel()
     isRefreshing = true
     refreshError = nil
-    didChange?()
 
     refreshTask = Task { [weak self] in
       guard let self else { return }
@@ -1619,7 +1618,6 @@ final class MenuBarModel {
     refreshTask?.cancel()
     refreshTask = nil
     isRefreshing = false
-    didChange?()
   }
 
   func openDataContainer(

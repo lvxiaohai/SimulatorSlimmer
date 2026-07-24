@@ -103,11 +103,10 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
   }
 
   func menuWillOpen(_ menu: NSMenu) {
-    model.refresh()
-  }
-
-  func menuDidClose(_ menu: NSMenu) {
-    model.cancelRefresh()
+    // AppKit 不允许在菜单开关回调中同步修改菜单结构。
+    DispatchQueue.main.async { [weak self] in
+      self?.model.refresh()
+    }
   }
 
   private func installStatusItemIfNeeded() {
