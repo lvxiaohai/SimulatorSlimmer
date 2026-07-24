@@ -45,7 +45,6 @@ struct OptimizationView: View {
         operationState
         metrics
         profilePanel
-        planPanel
       }
       .padding(.horizontal, InstrumentTheme.pagePadding)
       .padding(.bottom, InstrumentTheme.pagePadding)
@@ -182,55 +181,29 @@ struct OptimizationView: View {
           CustomServicePicker(snapshot: snapshot, model: model)
             .disabled(isBusy)
         }
+
+        Divider()
+
+        profileActions
       }
     }
   }
 
-  private var planPanel: some View {
-    InstrumentCard {
-      VStack(alignment: .leading, spacing: 16) {
-        InstrumentSectionLabel(
-          title: "optimization.plan.title",
-          detail: L10n.formatted("format.changes", effectiveChanges.count)
-        )
-
-        if effectiveChanges.isEmpty {
-          HStack(spacing: 12) {
-            Image(systemName: "checkmark.seal.fill")
-              .font(.title2)
-              .foregroundStyle(.mint)
-            VStack(alignment: .leading, spacing: 3) {
-              Text("optimization.plan.empty.title")
-                .font(.subheadline.weight(.semibold))
-              Text("optimization.plan.empty.message")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-          }
-          .padding(.vertical, 8)
-          .accessibilityElement(children: .combine)
-        } else {
-          ChangePlanList(changes: effectiveChanges, categories: snapshot.categories)
-        }
-
-        Divider()
-
-        ViewThatFits(in: .horizontal) {
-          HStack(spacing: 10) {
-            continuationAction
-            Spacer()
-            previewAction
-            optimizeAction
-          }
-          VStack(alignment: .trailing, spacing: 4) {
-            continuationAction
-              .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 10) {
-              Spacer()
-              previewAction
-              optimizeAction
-            }
-          }
+  private var profileActions: some View {
+    ViewThatFits(in: .horizontal) {
+      HStack(spacing: 10) {
+        continuationAction
+        Spacer()
+        previewAction
+        optimizeAction
+      }
+      VStack(alignment: .trailing, spacing: 4) {
+        continuationAction
+          .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 10) {
+          Spacer()
+          previewAction
+          optimizeAction
         }
       }
     }
@@ -490,109 +463,5 @@ private struct CustomServiceRow: View {
         ? L10n.text("custom-services.protected.hint")
         : L10n.text("custom-services.toggle.hint")
     )
-  }
-}
-
-private struct ChangePlanList: View {
-  let changes: [ServiceChange]
-  let categories: [ServiceCategory]
-  @State private var expandedCategoryIDs: Set<String> = []
-
-  private var groups: [(id: String, name: String, symbol: String, changes: [ServiceChange])] {
-    let grouped = Dictionary(grouping: changes, by: \.categoryID)
-    return grouped.map { id, changes in
-      let category = categories.first { $0.id == id }
-      return (
-        id: id,
-        name: category?.name ?? id,
-        symbol: category?.symbol ?? "square.grid.2x2",
-        changes: changes.sorted { $0.serviceName < $1.serviceName }
-      )
-    }
-    .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-  }
-
-  var body: some View {
-    VStack(spacing: 8) {
-      ForEach(groups, id: \.id) { group in
-        DisclosureGroup(
-          isExpanded: Binding(
-            get: { expandedCategoryIDs.contains(group.id) },
-            set: { expanded in
-              if expanded {
-                expandedCategoryIDs.insert(group.id)
-              } else {
-                expandedCategoryIDs.remove(group.id)
-              }
-            }
-          )
-        ) {
-          VStack(spacing: 0) {
-            ForEach(group.changes) { change in
-              ServiceChangeRow(change: change)
-              if change.id != group.changes.last?.id { Divider() }
-            }
-          }
-          .padding(.leading, 26)
-          .padding(.top, 6)
-        } label: {
-          HStack(spacing: 9) {
-            Image(systemName: group.symbol)
-              .foregroundStyle(.mint)
-              .frame(width: 20)
-            Text(group.name)
-              .font(.subheadline.weight(.medium))
-            Spacer()
-            Text(L10n.formatted("format.items", group.changes.count))
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(.secondary)
-          }
-          .frame(minHeight: 40)
-        }
-        .disclosureGroupStyle(InstrumentDisclosureGroupStyle())
-      }
-    }
-  }
-}
-
-private struct ServiceChangeRow: View {
-  let change: ServiceChange
-
-  var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      Image(
-        systemName: change.transition == .disable
-          ? "pause.circle.fill"
-          : "play.circle.fill"
-      )
-      .foregroundStyle(change.transition == .disable ? .orange : .mint)
-      .padding(.top, 1)
-      .accessibilityHidden(true)
-      VStack(alignment: .leading, spacing: 3) {
-        HStack(spacing: 7) {
-          Text(change.serviceName)
-          RiskBadge(risk: change.risk)
-        }
-        Text(change.label)
-          .font(.caption2.monospaced())
-          .foregroundStyle(.secondary)
-          .textSelection(.enabled)
-        if let impact = change.impact, !impact.isEmpty {
-          Text(impact)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      Text(change.localizedStateTransition)
-        .font(.caption.weight(.semibold).monospacedDigit())
-        .foregroundStyle(change.transition == .disable ? .orange : .mint)
-        .frame(width: 104, alignment: .trailing)
-        .padding(.top, 1)
-    }
-    .padding(.vertical, 10)
-    .frame(minHeight: 52)
-    .accessibilityElement(children: .combine)
   }
 }

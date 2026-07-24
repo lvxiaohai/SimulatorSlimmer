@@ -69,6 +69,17 @@ struct PreviewPresentation: Identifiable {
   let id = UUID()
   let preview: OperationPreview
   let confirmsExecution: Bool
+  let categories: [ServiceCategory]
+
+  init(
+    preview: OperationPreview,
+    confirmsExecution: Bool,
+    categories: [ServiceCategory] = []
+  ) {
+    self.preview = preview
+    self.confirmsExecution = confirmsExecution
+    self.categories = categories
+  }
 }
 
 struct BatchPreviewItem: Identifiable {

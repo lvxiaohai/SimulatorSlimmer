@@ -1308,6 +1308,10 @@ final class AppModel {
       )
       return
     }
+    let previewCategories =
+      snapshot?.device.id == operation.deviceID
+      ? snapshot?.categories ?? []
+      : []
     previewTask?.cancel()
     previewTask = Task { [weak self] in
       guard let self else { return }
@@ -1316,7 +1320,8 @@ final class AppModel {
         guard !Task.isCancelled else { return }
         previewPresentation = PreviewPresentation(
           preview: preview,
-          confirmsExecution: confirmsExecution
+          confirmsExecution: confirmsExecution,
+          categories: previewCategories
         )
       } catch is CancellationError {
         return

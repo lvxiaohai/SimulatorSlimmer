@@ -76,6 +76,25 @@ final class SimulatorSlimmerUITests: XCTestCase {
     XCTAssertTrue(extremeProfile.isSelected)
   }
 
+  func testOptimizationPreviewGroupsChangesAndExpandsGroupsByDefault() {
+    let app = launch(.ready)
+
+    XCTAssertTrue(app.buttons["预览变更"].waitForExistence(timeout: 5))
+    app.buttons["预览变更"].click()
+
+    let previewSheet = element(identifier: "operation-preview.sheet", in: app)
+    XCTAssertTrue(previewSheet.waitForExistence(timeout: 3))
+    XCTAssertTrue(
+      element(identifier: "preview-change-group.intelligence", in: app).exists
+    )
+    XCTAssertTrue(
+      element(identifier: "preview-change-group.sync", in: app).exists
+    )
+    XCTAssertTrue(
+      element(identifier: "service-change.com.apple.suggestionsd", in: app).exists
+    )
+  }
+
   func testBootedDeviceRequiresShutdownBeforeStorageOperations() {
     let app = launch(.ready)
 

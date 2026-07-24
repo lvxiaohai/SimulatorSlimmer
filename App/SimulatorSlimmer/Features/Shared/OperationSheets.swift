@@ -89,16 +89,9 @@ struct OperationPreviewSheet: View {
               title: "preview.service-changes",
               detail: L10n.formatted("format.changes", preview.serviceChanges.count)
             )
-            VStack(spacing: 0) {
-              ForEach(preview.serviceChanges) { change in
-                PreviewChangeRow(change: change)
-                if change.id != preview.serviceChanges.last?.id { Divider() }
-              }
-            }
-            .padding(.horizontal, 12)
-            .background(
-              Color.instrumentRaised,
-              in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            PreviewChangeGroupList(
+              changes: preview.serviceChanges,
+              categories: presentation.categories
             )
           }
         }
@@ -607,6 +600,102 @@ struct BatchPreviewSheet: View {
     )
     .accessibilityElement(children: .contain)
     .accessibilityIdentifier("batch-preview.device.\(item.id.rawValue)")
+  }
+}
+
+private struct PreviewChangeGroupList: View {
+  private struct Group: Identifiable {
+    let id: String
+    let name: String
+    let symbol: String
+    let changes: [ServiceChange]
+  }
+
+  let changes: [ServiceChange]
+  let categories: [ServiceCategory]
+  @State private var expandedCategoryIDs: Set<String>
+
+  init(changes: [ServiceChange], categories: [ServiceCategory]) {
+    self.changes = changes
+    self.categories = categories
+    _expandedCategoryIDs = State(initialValue: Set(changes.map(\.categoryID)))
+  }
+
+  private var groups: [Group] {
+    let groupedChanges = Dictionary(grouping: changes, by: \.categoryID)
+    let knownGroups = categories.compactMap { category -> Group? in
+      guard let changes = groupedChanges[category.id] else { return nil }
+      return Group(
+        id: category.id,
+        name: category.name,
+        symbol: category.symbol,
+        changes: changes.sorted(by: serviceNameAscending)
+      )
+    }
+    let knownCategoryIDs = Set(categories.map(\.id))
+    let unknownGroups = groupedChanges.compactMap { categoryID, changes -> Group? in
+      guard !knownCategoryIDs.contains(categoryID) else { return nil }
+      return Group(
+        id: categoryID,
+        name: categoryID,
+        symbol: "square.grid.2x2",
+        changes: changes.sorted(by: serviceNameAscending)
+      )
+    }
+    .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    return knownGroups + unknownGroups
+  }
+
+  var body: some View {
+    VStack(spacing: 8) {
+      ForEach(groups) { group in
+        DisclosureGroup(
+          isExpanded: Binding(
+            get: { expandedCategoryIDs.contains(group.id) },
+            set: { isExpanded in
+              if isExpanded {
+                expandedCategoryIDs.insert(group.id)
+              } else {
+                expandedCategoryIDs.remove(group.id)
+              }
+            }
+          )
+        ) {
+          VStack(spacing: 0) {
+            ForEach(group.changes) { change in
+              PreviewChangeRow(change: change)
+              if change.id != group.changes.last?.id { Divider() }
+            }
+          }
+          .padding(.leading, 26)
+          .padding(.top, 6)
+        } label: {
+          HStack(spacing: 9) {
+            Image(systemName: group.symbol)
+              .foregroundStyle(.mint)
+              .frame(width: 20)
+            Text(group.name)
+              .font(.subheadline.weight(.medium))
+            Spacer()
+            Text(L10n.formatted("format.items", group.changes.count))
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+          }
+          .frame(minHeight: 40)
+          .accessibilityIdentifier("preview-change-group.\(group.id)")
+        }
+        .padding(.horizontal, 12)
+        .background(
+          Color.instrumentRaised,
+          in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .disclosureGroupStyle(InstrumentDisclosureGroupStyle())
+      }
+    }
+  }
+
+  private func serviceNameAscending(_ lhs: ServiceChange, _ rhs: ServiceChange) -> Bool {
+    lhs.serviceName.localizedStandardCompare(rhs.serviceName) == .orderedAscending
   }
 }
 
