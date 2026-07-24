@@ -238,7 +238,6 @@ private struct InstrumentDisclosureButtonStyle: ButtonStyle {
       .background {
         RoundedRectangle(cornerRadius: 8, style: .continuous)
           .fill(Color.primary.opacity(backgroundOpacity(isPressed: configuration.isPressed)))
-          .padding(.trailing, 8)
       }
       .animation(
         reduceMotion ? nil : .easeOut(duration: 0.1),
