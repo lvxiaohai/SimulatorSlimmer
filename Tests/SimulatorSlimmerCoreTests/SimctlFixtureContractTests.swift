@@ -22,6 +22,7 @@ struct SimctlFixtureContractTests {
 
     let inventory = try await SimctlAdapter(runner: runner).inventory()
 
+    #expect(inventory.runtimes.map(\.version) == ["26.5", "26.3.1"])
     #expect(inventory.runtimes.count == 2)
     #expect(inventory.devices.count == 2)
 
@@ -45,6 +46,83 @@ struct SimctlFixtureContractTests {
     #expect(tablet.dataSize == 2_147_483_648)
   }
 
+  @Test("已启动设备显示模拟器时不再重复等待启动完成")
+  func openingBootedSimulatorSkipsBootStatus() async throws {
+    let runtimeJSON = try fixtureText(
+      named: "simctl-list-runtimes",
+      extension: "json"
+    )
+    let deviceJSON = try fixtureText(
+      named: "simctl-list-devices",
+      extension: "json"
+    )
+    let deviceID = "11111111-2222-4333-8444-555555555555"
+    let runner = FixtureCommandRunner(outputs: [
+      "simctl list runtimes -j": runtimeJSON,
+      "simctl list devices -j": deviceJSON,
+      "-a Simulator --args -CurrentDeviceUDID \(deviceID)": "",
+    ])
+
+    try await SimctlAdapter(runner: runner).openSimulator(
+      SimulatorID(rawValue: deviceID)
+    )
+  }
+
+  @Test("显示模拟器不会启动已关机设备")
+  func openingShutdownSimulatorDoesNotBootIt() async throws {
+    let runtimeJSON = try fixtureText(
+      named: "simctl-list-runtimes",
+      extension: "json"
+    )
+    let deviceJSON = try fixtureText(
+      named: "simctl-list-devices",
+      extension: "json"
+    )
+    let runner = FixtureCommandRunner(outputs: [
+      "simctl list runtimes -j": runtimeJSON,
+      "simctl list devices -j": deviceJSON,
+    ])
+
+    await #expect(throws: SimulatorWorkspaceError.self) {
+      try await SimctlAdapter(runner: runner).openSimulator(
+        SimulatorID(rawValue: "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE")
+      )
+    }
+  }
+
+  @Test("Runtime 与设备按数字版本从新到旧排序")
+  func inventoryUsesNumericRuntimeOrder() async throws {
+    let runtime263ID = "com.apple.CoreSimulator.SimRuntime.iOS-26-3"
+    let runtime265ID = "com.apple.CoreSimulator.SimRuntime.iOS-26-5"
+    let runtime2610ID = "com.apple.CoreSimulator.SimRuntime.iOS-26-10"
+    let runner = FixtureCommandRunner(outputs: [
+      "simctl list runtimes -j": """
+      {"runtimes":[
+        {"identifier":"\(runtime263ID)","name":"iOS 26.3","version":"26.3.1","isAvailable":true},
+        {"identifier":"\(runtime2610ID)","name":"iOS 26.10","version":"26.10","isAvailable":true},
+        {"identifier":"\(runtime265ID)","name":"iOS 26.5","version":"26.5","isAvailable":true}
+      ]}
+      """,
+      "simctl list devices -j": """
+      {"devices":{
+        "\(runtime263ID)":[{"udid":"11111111-2222-4333-8444-555555555555","name":"iOS 26.3 设备","state":"Shutdown","isAvailable":true,"deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-17"}],
+        "\(runtime2610ID)":[{"udid":"22222222-3333-4444-8555-666666666666","name":"iOS 26.10 设备","state":"Shutdown","isAvailable":true,"deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-17"}],
+        "\(runtime265ID)":[{"udid":"33333333-4444-4555-8666-777777777777","name":"iOS 26.5 设备","state":"Shutdown","isAvailable":true,"deviceTypeIdentifier":"com.apple.CoreSimulator.SimDeviceType.iPhone-17"}]
+      }}
+      """,
+    ])
+
+    let inventory = try await SimctlAdapter(runner: runner).inventory()
+
+    #expect(inventory.runtimes.map(\.version) == ["26.10", "26.5", "26.3.1"])
+    #expect(
+      inventory.devices.map(\.runtimeIdentifier) == [
+        runtime2610ID,
+        runtime265ID,
+        runtime263ID,
+      ])
+  }
+
   @Test("print-disabled 只提取明确禁用的 label")
   func printDisabledFixtureDecodesThroughProductionParser() throws {
     let output = try fixtureText(
@@ -65,7 +143,7 @@ struct SimctlFixtureContractTests {
     #expect(!disabledLabels.contains("com.apple.SpringBoard"))
   }
 
-  @Test("服务存在性探测忽略 Runtime 中已失效的目录规则")
+  @Test("服务存在性从前台用户域读取新建设备的服务")
   func servicePresenceProbeUsesExactLaunchdTargets() async throws {
     let runtimeJSON = try fixtureText(
       named: "simctl-list-runtimes",
@@ -78,19 +156,50 @@ struct SimctlFixtureContractTests {
     let runner = ServicePresenceFixtureRunner(
       runtimeJSON: runtimeJSON,
       deviceJSON: deviceJSON,
-      presentLabels: ["com.apple.present"]
+      presentLabels: ["com.apple.configured", "com.apple.present"]
     )
     let adapter = SimctlAdapter(runner: runner)
     let deviceID = SimulatorID(rawValue: "11111111-2222-4333-8444-555555555555")
 
     let present = try await adapter.presentServiceLabels(
-      ["com.apple.present", "com.apple.removed"],
+      [
+        "com.apple.configured",
+        "com.apple.endpoint-only",
+        "com.apple.present",
+        "com.apple.removed",
+      ],
       for: deviceID
     )
 
-    #expect(present == ["com.apple.present"])
+    #expect(present == ["com.apple.configured", "com.apple.present"])
+    #expect(await runner.bulkProbeCount() == 1)
+  }
+
+  @Test("服务状态读取与变更统一使用前台用户域")
+  func serviceOperationsUseForegroundUserDomain() async throws {
+    let runner = LaunchdDomainFixtureRunner()
+    let adapter = SimctlAdapter(runner: runner)
+    let deviceID = SimulatorID(rawValue: "11111111-2222-4333-8444-555555555555")
+
+    _ = try await adapter.disabledLabels(for: deviceID)
+    try await adapter.setService(
+      "com.apple.fixture",
+      transition: .disable,
+      deviceID: deviceID
+    )
+
+    let commands = await runner.recordedCommands()
     #expect(
-      await runner.probedLabels() == ["com.apple.present", "com.apple.removed"]
+      commands == [
+        [
+          "simctl", "spawn", deviceID.rawValue,
+          "launchctl", "print-disabled", "user/foreground",
+        ],
+        [
+          "simctl", "spawn", deviceID.rawValue,
+          "launchctl", "disable", "user/foreground/com.apple.fixture",
+        ],
+      ]
     )
   }
 
@@ -231,7 +340,7 @@ private actor ServicePresenceFixtureRunner: CommandRunning {
   let runtimeJSON: String
   let deviceJSON: String
   let presentLabels: Set<String>
-  private var probes = Set<String>()
+  private var bulkProbes = 0
 
   init(runtimeJSON: String, deviceJSON: String, presentLabels: Set<String>) {
     self.runtimeJSON = runtimeJSON
@@ -251,28 +360,48 @@ private actor ServicePresenceFixtureRunner: CommandRunning {
       arguments[0] == "simctl",
       arguments[1] == "spawn",
       arguments[3] == "launchctl",
-      arguments[4] == "print"
+      arguments[4] == "print",
+      arguments[5] == "user/foreground"
     {
-      let target = arguments[5]
-      let label = target.replacingOccurrences(of: "system/", with: "")
-      probes.insert(label)
-      if presentLabels.contains(label) {
-        return CommandOutput(
-          standardOutput: "system/\(label) = { state = running }",
-          standardError: "",
-          exitCode: 0
-        )
-      }
-      throw SimulatorWorkspaceError.commandFailed(
-        command: command.displayName,
-        code: 113,
-        message: "Could not find service \"\(label)\" in domain for system"
+      bulkProbes += 1
+      let sortedLabels = presentLabels.sorted()
+      let loaded = sortedLabels.first ?? "com.apple.fixture"
+      let configured = sortedLabels.dropFirst().map {
+        "\"\($0)\" => enabled"
+      }.joined(separator: "\n")
+      return CommandOutput(
+        standardOutput: """
+          user/foreground = {
+            services = {
+              42 - \(loaded)
+            }
+            endpoints = {
+              0x1234 M A com.apple.endpoint-only
+            }
+            disabled services = {
+              \(configured)
+            }
+          }
+          """,
+        standardError: "",
+        exitCode: 0
       )
     }
     throw FixtureContractError.unexpectedCommand(arguments.joined(separator: " "))
   }
 
-  func probedLabels() -> Set<String> { probes }
+  func bulkProbeCount() -> Int { bulkProbes }
+}
+
+private actor LaunchdDomainFixtureRunner: CommandRunning {
+  private var commands: [[String]] = []
+
+  func run(_ command: Command) async throws -> CommandOutput {
+    commands.append(command.arguments)
+    return CommandOutput(standardOutput: "", standardError: "", exitCode: 0)
+  }
+
+  func recordedCommands() -> [[String]] { commands }
 }
 
 private enum FixtureContractError: Error {

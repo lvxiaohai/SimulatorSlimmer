@@ -12,7 +12,7 @@ actor ReceiptStore: ReceiptStoring {
   private static let supportedSchemaVersion = 1
   private static let maximumReceiptBytes = 16 * 1_024 * 1_024
   static let interruptionMarker = "应用上次运行期间意外中断"
-  static let interruptionResolutionMarker = "中断回执已处理"
+  static let interruptionResolutionMarker = "中断状态已处理"
 
   private let directoryURL: URL
   private let fileManager: FileManager
@@ -43,7 +43,7 @@ actor ReceiptStore: ReceiptStoring {
     guard receipt.schemaVersion == Self.supportedSchemaVersion,
       receipt.opaquePayload == nil
     else {
-      throw SimulatorWorkspaceError.invalidOperation("未知版本或损坏的回执只能读取和导出")
+      throw SimulatorWorkspaceError.invalidOperation("未知版本或损坏的内部恢复数据只能读取和导出")
     }
     let data = try encoder.encode(receipt)
     let directoryDescriptor = try openOrCreateReceiptDirectory()
@@ -130,7 +130,7 @@ actor ReceiptStore: ReceiptStoring {
     }
 
     guard let schemaVersion = envelope.schemaVersion else {
-      let error = SimulatorWorkspaceError.malformedOutput("回执缺少结构版本")
+      let error = SimulatorWorkspaceError.malformedOutput("内部恢复数据缺少结构版本")
       if !requireSupportedSchema {
         return Self.corruptedPlaceholder(
           id: id,
@@ -148,7 +148,7 @@ actor ReceiptStore: ReceiptStoring {
     guard schemaVersion == Self.supportedSchemaVersion else {
       if requireSupportedSchema {
         throw SimulatorWorkspaceError.malformedOutput(
-          "回执 \(id.rawValue.uuidString) 使用不支持的版本 \(schemaVersion)"
+          "内部恢复数据 \(id.rawValue.uuidString) 使用不支持的版本 \(schemaVersion)"
         )
       }
       return Self.unsupportedPlaceholder(
@@ -207,7 +207,7 @@ actor ReceiptStore: ReceiptStoring {
     {
       receipt.status = .partial
       receipt.finishedAt = Date()
-      receipt.messages.append("\(Self.interruptionMarker)；已保留现状，可继续验证或按回执恢复")
+      receipt.messages.append("\(Self.interruptionMarker)；已保留现状，可继续验证或按基线恢复")
       try await save(receipt)
       recovered.append(receipt)
     }
@@ -230,11 +230,11 @@ actor ReceiptStore: ReceiptStoring {
         return directoryDescriptor
       }
       throw SimulatorWorkspaceError.malformedOutput(
-        "无法创建回执目录：\(error.localizedDescription)"
+        "无法创建内部恢复数据目录：\(error.localizedDescription)"
       )
     }
     guard let directoryDescriptor = try openReceiptDirectoryIfPresent() else {
-      throw SimulatorWorkspaceError.malformedOutput("回执目录创建后不可用")
+      throw SimulatorWorkspaceError.malformedOutput("内部恢复数据目录创建后不可用")
     }
     return directoryDescriptor
   }
@@ -257,7 +257,7 @@ actor ReceiptStore: ReceiptStoring {
       S_IRUSR | S_IWUSR
     )
     guard descriptor >= 0 else {
-      throw Self.posixError(context: "无法创建回执临时文件", code: errno)
+      throw Self.posixError(context: "无法创建内部恢复数据临时文件", code: errno)
     }
 
     let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
@@ -275,18 +275,18 @@ actor ReceiptStore: ReceiptStoring {
       try handle.close()
     } catch {
       throw SimulatorWorkspaceError.malformedOutput(
-        "无法原子写入回执：\(error.localizedDescription)"
+        "无法原子写入内部恢复数据：\(error.localizedDescription)"
       )
     }
 
     guard Darwin.renameat(directoryDescriptor, temporaryName, directoryDescriptor, fileName) == 0
     else {
-      throw Self.posixError(context: "无法提交回执文件", code: errno)
+      throw Self.posixError(context: "无法提交内部恢复数据文件", code: errno)
     }
     shouldRemoveTemporaryFile = false
 
     guard Darwin.fsync(directoryDescriptor) == 0 else {
-      throw Self.posixError(context: "无法同步回执目录", code: errno)
+      throw Self.posixError(context: "无法同步内部恢复数据目录", code: errno)
     }
   }
 
@@ -297,12 +297,12 @@ actor ReceiptStore: ReceiptStoring {
       O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_DIRECTORY | O_NONBLOCK
     )
     guard enumerationDescriptor >= 0 else {
-      throw Self.posixError(context: "无法打开回执目录流", code: errno)
+      throw Self.posixError(context: "无法打开内部恢复数据目录流", code: errno)
     }
     guard let directory = Darwin.fdopendir(enumerationDescriptor) else {
       let errorCode = errno
       _ = Darwin.close(enumerationDescriptor)
-      throw Self.posixError(context: "无法读取回执目录流", code: errorCode)
+      throw Self.posixError(context: "无法读取内部恢复数据目录流", code: errorCode)
     }
     defer { _ = Darwin.closedir(directory) }
 
@@ -312,7 +312,7 @@ actor ReceiptStore: ReceiptStoring {
       guard let entry = Darwin.readdir(directory) else {
         let errorCode = errno
         guard errorCode == 0 else {
-          throw Self.posixError(context: "无法枚举回执目录", code: errorCode)
+          throw Self.posixError(context: "无法枚举内部恢复数据目录", code: errorCode)
         }
         break
       }
@@ -339,9 +339,9 @@ actor ReceiptStore: ReceiptStoring {
     guard descriptor >= 0 else {
       let errorCode = errno
       if errorCode == ELOOP {
-        throw SimulatorWorkspaceError.malformedOutput("回执不是普通文件或使用了符号链接")
+        throw SimulatorWorkspaceError.malformedOutput("内部恢复数据不是普通文件或使用了符号链接")
       }
-      throw Self.posixError(context: "无法安全打开回执", code: errorCode)
+      throw Self.posixError(context: "无法安全打开内部恢复数据", code: errorCode)
     }
 
     let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
@@ -349,21 +349,21 @@ actor ReceiptStore: ReceiptStoring {
 
     var metadata = stat()
     guard Darwin.fstat(descriptor, &metadata) == 0 else {
-      throw Self.posixError(context: "无法检查回执文件", code: errno)
+      throw Self.posixError(context: "无法检查内部恢复数据文件", code: errno)
     }
     guard metadata.st_mode & S_IFMT == S_IFREG else {
-      throw SimulatorWorkspaceError.malformedOutput("回执不是普通文件或使用了符号链接")
+      throw SimulatorWorkspaceError.malformedOutput("内部恢复数据不是普通文件或使用了符号链接")
     }
     if metadata.st_size > off_t(Self.maximumReceiptBytes) {
       throw SimulatorWorkspaceError.malformedOutput(
-        "回执超过 \(Self.maximumReceiptBytes) 字节读取上限"
+        "内部恢复数据超过 \(Self.maximumReceiptBytes) 字节读取上限"
       )
     }
 
     let data = try handle.read(upToCount: Self.maximumReceiptBytes + 1) ?? Data()
     guard data.count <= Self.maximumReceiptBytes else {
       throw SimulatorWorkspaceError.malformedOutput(
-        "回执超过 \(Self.maximumReceiptBytes) 字节读取上限"
+        "内部恢复数据超过 \(Self.maximumReceiptBytes) 字节读取上限"
       )
     }
     return data
@@ -379,22 +379,22 @@ actor ReceiptStore: ReceiptStoring {
       if errorCode == ENOENT { return nil }
       if errorCode == ELOOP || errorCode == ENOTDIR {
         throw SimulatorWorkspaceError.malformedOutput(
-          "回执目录不是普通目录或使用了符号链接"
+          "内部恢复数据目录不是普通目录或使用了符号链接"
         )
       }
-      throw Self.posixError(context: "无法安全打开回执目录", code: errorCode)
+      throw Self.posixError(context: "无法安全打开内部恢复数据目录", code: errorCode)
     }
 
     var metadata = stat()
     guard Darwin.fstat(descriptor, &metadata) == 0 else {
       let errorCode = errno
       _ = Darwin.close(descriptor)
-      throw Self.posixError(context: "无法检查回执目录", code: errorCode)
+      throw Self.posixError(context: "无法检查内部恢复数据目录", code: errorCode)
     }
     guard metadata.st_mode & S_IFMT == S_IFDIR else {
       _ = Darwin.close(descriptor)
       throw SimulatorWorkspaceError.malformedOutput(
-        "回执目录不是普通目录或使用了符号链接"
+        "内部恢复数据目录不是普通目录或使用了符号链接"
       )
     }
     return descriptor
@@ -415,7 +415,7 @@ actor ReceiptStore: ReceiptStoring {
     else {
       let errorCode = errno
       if errorCode == ENOENT { return false }
-      throw posixError(context: "无法检查回执文件", code: errorCode)
+      throw posixError(context: "无法检查内部恢复数据文件", code: errorCode)
     }
     return true
   }
@@ -428,7 +428,7 @@ actor ReceiptStore: ReceiptStoring {
     rawJSON: String?,
     modificationDate: Date
   ) -> OperationReceipt {
-    let message = "此回执使用不支持的结构版本 \(schemaVersion)，只能读取和导出，不能恢复或继续验证。"
+    let message = "内部恢复数据使用不支持的结构版本 \(schemaVersion)，只能读取和导出，不能恢复或继续验证。"
     return placeholder(
       id: id,
       sourceURL: sourceURL,
@@ -455,7 +455,7 @@ actor ReceiptStore: ReceiptStoring {
     modificationDate: Date,
     error: Error
   ) -> OperationReceipt {
-    let detail = "回执文件已损坏：\(error.localizedDescription)"
+    let detail = "内部恢复数据已损坏：\(error.localizedDescription)"
     return placeholder(
       id: id,
       sourceURL: sourceURL,
@@ -483,7 +483,7 @@ actor ReceiptStore: ReceiptStoring {
     messages: [String],
     opaquePayload: OpaqueReceiptPayload
   ) -> OperationReceipt {
-    let fallbackName = "只读回执 \(id.rawValue.uuidString.lowercased().prefix(8))"
+    let fallbackName = "只读恢复数据 \(id.rawValue.uuidString.lowercased().prefix(8))"
     let deviceName = safeDisplayText(envelope?.deviceName) ?? fallbackName
     let deviceID =
       envelope?.deviceID.flatMap { rawValue in
@@ -513,10 +513,10 @@ actor ReceiptStore: ReceiptStoring {
   ) -> [String] {
     var messages = [primary]
     if let kind = envelope?.kind, OperationKind(rawValue: kind) == nil {
-      messages.append("原回执操作类型：\(safeDisplayText(kind) ?? "无法安全显示")")
+      messages.append("原操作类型：\(safeDisplayText(kind) ?? "无法安全显示")")
     }
     if let status = envelope?.status, OperationStatus(rawValue: status) == nil {
-      messages.append("原回执状态：\(safeDisplayText(status) ?? "无法安全显示")")
+      messages.append("原操作状态：\(safeDisplayText(status) ?? "无法安全显示")")
     }
     return messages
   }
@@ -531,7 +531,7 @@ actor ReceiptStore: ReceiptStoring {
 
   private static func corruptedError(id: ReceiptID, error: Error) -> SimulatorWorkspaceError {
     .malformedOutput(
-      "回执 \(id.rawValue.uuidString) 已损坏：\(error.localizedDescription)"
+      "内部恢复数据 \(id.rawValue.uuidString) 已损坏：\(error.localizedDescription)"
     )
   }
 
@@ -607,7 +607,7 @@ private struct ReceiptEnvelope: Sendable {
   init(data: Data) throws {
     let object = try JSONSerialization.jsonObject(with: data)
     guard let dictionary = object as? [String: Any] else {
-      throw SimulatorWorkspaceError.malformedOutput("回执顶层不是 JSON 对象")
+      throw SimulatorWorkspaceError.malformedOutput("内部恢复数据顶层不是 JSON 对象")
     }
 
     self.schemaVersion = Self.integer(dictionary["schemaVersion"])

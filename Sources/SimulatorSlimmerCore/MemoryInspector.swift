@@ -3,6 +3,24 @@ import Foundation
 
 protocol MemoryInspecting: Sendable {
   func snapshot(for deviceID: SimulatorID) async throws -> MemorySnapshot
+  func applicationMemorySnapshots(
+    for deviceID: SimulatorID,
+    applications: [SimulatorApplication]
+  ) async throws -> [String: ApplicationMemorySnapshot]
+}
+
+extension MemoryInspecting {
+  func applicationMemorySnapshots(
+    for deviceID: SimulatorID,
+    applications: [SimulatorApplication]
+  ) async throws -> [String: ApplicationMemorySnapshot] {
+    [:]
+  }
+}
+
+struct ApplicationProcessMemorySample: Hashable, Sendable {
+  let executableURL: URL
+  let bytes: UInt64
 }
 
 struct LibprocMemoryInspector: MemoryInspecting, Sendable {
@@ -21,6 +39,30 @@ struct LibprocMemoryInspector: MemoryInspecting, Sendable {
     let rootPID = try await locateLaunchdSimulator(for: deviceID)
     return try await Task.detached(priority: .userInitiated) {
       try Self.readProcessTree(rootPID: rootPID)
+    }.value
+  }
+
+  func applicationMemorySnapshots(
+    for deviceID: SimulatorID,
+    applications: [SimulatorApplication]
+  ) async throws -> [String: ApplicationMemorySnapshot] {
+    guard SimctlAdapter.isValidUDID(deviceID.rawValue) else {
+      throw SimulatorWorkspaceError.deviceNotFound(deviceID)
+    }
+    guard applications.contains(where: { $0.bundleURL != nil }) else {
+      return [:]
+    }
+
+    let rootPID = try await locateLaunchdSimulator(for: deviceID)
+    return try await Task.detached(priority: .userInitiated) {
+      let samples = try Self.readApplicationProcessMemory(
+        rootPID: rootPID,
+        applications: applications
+      )
+      return Self.attributeApplicationMemory(
+        samples: samples,
+        applications: applications
+      )
     }.value
   }
 
@@ -51,19 +93,7 @@ struct LibprocMemoryInspector: MemoryInspecting, Sendable {
   }
 
   private static func readProcessTree(rootPID: pid_t) throws -> MemorySnapshot {
-    let pids = allProcessIDs()
-    var parents: [pid_t: pid_t] = [:]
-    parents.reserveCapacity(pids.count)
-
-    for pid in pids {
-      guard let info = bsdInfo(for: pid) else { continue }
-      parents[pid] = pid_t(info.pbi_ppid)
-    }
-
-    let processTree = descendantPIDs(parents: parents, rootPID: rootPID)
-    guard processTree.contains(rootPID) else {
-      throw SimulatorWorkspaceError.invalidOperation("模拟器进程在读取内存期间已退出")
-    }
+    let processTree = try processTreePIDs(rootPID: rootPID)
 
     var total: UInt64 = 0
     var measuredCount = 0
@@ -83,6 +113,93 @@ struct LibprocMemoryInspector: MemoryInspecting, Sendable {
       processCount: measuredCount,
       method: "physical-footprint (libproc)"
     )
+  }
+
+  private static func processTreePIDs(rootPID: pid_t) throws -> Set<pid_t> {
+    let pids = allProcessIDs()
+    var parents: [pid_t: pid_t] = [:]
+    parents.reserveCapacity(pids.count)
+
+    for pid in pids {
+      guard let info = bsdInfo(for: pid) else { continue }
+      parents[pid] = pid_t(info.pbi_ppid)
+    }
+
+    guard parents[rootPID] != nil else {
+      throw SimulatorWorkspaceError.invalidOperation("模拟器进程在读取内存期间已退出")
+    }
+    return descendantPIDs(parents: parents, rootPID: rootPID)
+  }
+
+  private static func readApplicationProcessMemory(
+    rootPID: pid_t,
+    applications: [SimulatorApplication]
+  ) throws -> [ApplicationProcessMemorySample] {
+    let processTree = try processTreePIDs(rootPID: rootPID)
+    let bundleRoots = applicationBundleRoots(applications)
+    guard !bundleRoots.isEmpty else { return [] }
+
+    var readablePathCount = 0
+    var matchedPathCount = 0
+    var samples: [ApplicationProcessMemorySample] = []
+    for pid in processTree {
+      guard let executableURL = executableURL(for: pid) else { continue }
+      readablePathCount += 1
+      guard matchingBundleIdentifier(for: executableURL, roots: bundleRoots) != nil else {
+        continue
+      }
+      matchedPathCount += 1
+      guard let bytes = physicalFootprint(for: pid) else { continue }
+      samples.append(
+        ApplicationProcessMemorySample(
+          executableURL: executableURL,
+          bytes: bytes
+        )
+      )
+    }
+
+    guard readablePathCount > 0 else {
+      throw SimulatorWorkspaceError.invalidOperation("系统拒绝读取模拟器进程的可执行路径")
+    }
+    guard matchedPathCount == 0 || !samples.isEmpty else {
+      throw SimulatorWorkspaceError.invalidOperation("系统拒绝读取模拟器进程的物理内存")
+    }
+    return samples
+  }
+
+  static func attributeApplicationMemory(
+    samples: [ApplicationProcessMemorySample],
+    applications: [SimulatorApplication],
+    collectedAt: Date = Date()
+  ) -> [String: ApplicationMemorySnapshot] {
+    let roots = applicationBundleRoots(applications)
+    var totals: [String: (bytes: UInt64, processCount: Int)] = [:]
+
+    for sample in samples {
+      guard
+        let bundleIdentifier = matchingBundleIdentifier(
+          for: sample.executableURL,
+          roots: roots
+        )
+      else {
+        continue
+      }
+      var total = totals[bundleIdentifier] ?? (bytes: 0, processCount: 0)
+      let (newBytes, overflowed) = total.bytes.addingReportingOverflow(sample.bytes)
+      total.bytes = overflowed ? UInt64.max : newBytes
+      if total.processCount < Int.max {
+        total.processCount += 1
+      }
+      totals[bundleIdentifier] = total
+    }
+
+    return totals.mapValues { total in
+      ApplicationMemorySnapshot(
+        bytes: total.bytes > UInt64(Int64.max) ? Int64.max : Int64(total.bytes),
+        processCount: total.processCount,
+        collectedAt: collectedAt
+      )
+    }
   }
 
   static func descendantPIDs(
@@ -136,6 +253,66 @@ struct LibprocMemoryInspector: MemoryInspecting, Sendable {
       }
     }
     return result == 0 ? usage.ri_phys_footprint : nil
+  }
+
+  private static func executableURL(for pid: pid_t) -> URL? {
+    var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+    let count = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+    guard count > 0 else { return nil }
+    let bytes = buffer.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) }
+    guard !bytes.isEmpty else { return nil }
+    return URL(
+      fileURLWithPath: String(decoding: bytes, as: UTF8.self),
+      isDirectory: false
+    )
+    .resolvingSymlinksInPath()
+    .standardizedFileURL
+  }
+
+  private struct ApplicationBundleRoot {
+    let bundleIdentifier: String
+    let pathComponents: [String]
+  }
+
+  private static func applicationBundleRoots(
+    _ applications: [SimulatorApplication]
+  ) -> [ApplicationBundleRoot] {
+    applications.compactMap { application in
+      guard let bundleURL = application.bundleURL, bundleURL.isFileURL else {
+        return nil
+      }
+      let resolvedURL =
+        bundleURL
+        .resolvingSymlinksInPath()
+        .standardizedFileURL
+      return ApplicationBundleRoot(
+        bundleIdentifier: application.bundleIdentifier,
+        pathComponents: resolvedURL.pathComponents
+      )
+    }
+    .sorted { lhs, rhs in
+      if lhs.pathComponents.count != rhs.pathComponents.count {
+        return lhs.pathComponents.count > rhs.pathComponents.count
+      }
+      return lhs.bundleIdentifier < rhs.bundleIdentifier
+    }
+  }
+
+  private static func matchingBundleIdentifier(
+    for executableURL: URL,
+    roots: [ApplicationBundleRoot]
+  ) -> String? {
+    guard executableURL.isFileURL else { return nil }
+    let executableComponents =
+      executableURL
+      .resolvingSymlinksInPath()
+      .standardizedFileURL
+      .pathComponents
+
+    return roots.first { root in
+      executableComponents.count > root.pathComponents.count
+        && executableComponents.starts(with: root.pathComponents)
+    }?.bundleIdentifier
   }
 
   private static func processName(_ pid: pid_t) -> String? {

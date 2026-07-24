@@ -109,6 +109,31 @@ struct ServiceCatalogBehaviorTests {
     #expect(states.first { $0.service.label == "com.test.high" }?.isPresent == false)
   }
 
+  @Test("优化候选排除不存在及受保护服务")
+  func optimizationCandidatesExcludeUnavailableAndProtectedServices() {
+    let catalog = makeBehaviorCatalog()
+    let states = catalog.serviceStates(
+      runtimeVersion: "26.5",
+      disabledLabels: [],
+      presentLabels: [
+        "com.test.low",
+        "com.test.moderate",
+        "com.test.protected",
+      ]
+    )
+
+    #expect(
+      states
+        .filter(\.isOptimizationCandidate)
+        .map(\.service.label)
+        .sorted()
+        == [
+          "com.test.low",
+          "com.test.moderate",
+        ]
+    )
+  }
+
   @Test("无法解析的 Runtime 版本默认拒绝全部服务规则")
   func malformedRuntimeVersionDefaultsToNoServices() {
     let catalog = makeBehaviorCatalog()

@@ -5,6 +5,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
   private let memoryInspector: any MemoryInspecting
   private let receiptStore: any ReceiptStoring
   private let storageManager: any StorageManaging
+  private let applicationCatalog: SimulatorApplicationCatalog
   private let operationGate: OperationGate
   private let catalog: ServiceCatalog?
   private let catalogLoadError: String?
@@ -22,6 +23,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     self.memoryInspector = LibprocMemoryInspector(runner: runner)
     self.receiptStore = ReceiptStore()
     self.storageManager = StorageManager()
+    self.applicationCatalog = SimulatorApplicationCatalog(runner: runner)
     self.operationGate = OperationGate()
     self.memoryStabilizationDelay = .seconds(2)
     self.serviceMutationConfirmationLifetime = .seconds(300)
@@ -39,6 +41,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     memoryInspector: any MemoryInspecting,
     receiptStore: any ReceiptStoring,
     storageManager: any StorageManaging,
+    applicationCatalog: SimulatorApplicationCatalog = SimulatorApplicationCatalog(),
     operationGate: OperationGate,
     catalog: ServiceCatalog,
     memoryStabilizationDelay: Duration = .zero,
@@ -48,6 +51,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     self.memoryInspector = memoryInspector
     self.receiptStore = receiptStore
     self.storageManager = storageManager
+    self.applicationCatalog = applicationCatalog
     self.operationGate = operationGate
     self.catalog = catalog
     self.catalogLoadError = nil
@@ -74,6 +78,30 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       recentReceipts: Array(resolvedReceipts.prefix(200)),
       pendingReceipts: pending
     )
+  }
+
+  public func simulatorCreationOptions() async throws -> SimulatorCreationOptions {
+    async let inventory = simulator.inventory()
+    async let deviceTypes = simulator.availableDeviceTypes()
+    let (resolvedInventory, resolvedDeviceTypes) = try await (inventory, deviceTypes)
+    return SimulatorCreationOptions(
+      runtimes: resolvedInventory.runtimes.filter(\.isAvailable),
+      deviceTypes: resolvedDeviceTypes
+    )
+  }
+
+  public func createSimulator(
+    _ request: SimulatorCreationRequest
+  ) async throws -> SimulatorID {
+    let options = try await simulatorCreationOptions()
+    guard
+      let runtime = options.runtimes.first(where: { $0.id == request.runtimeID }),
+      let deviceType = options.deviceTypes.first(where: { $0.id == request.deviceTypeID }),
+      deviceType.supports(runtimeVersion: runtime.version)
+    else {
+      throw SimulatorWorkspaceError.invalidOperation("设备类型与系统运行时不兼容")
+    }
+    return try await simulator.create(request)
   }
 
   public func inspect(_ deviceID: SimulatorID) async throws -> DeviceSnapshot {
@@ -165,6 +193,52 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     )
   }
 
+  public func applications(for deviceID: SimulatorID) async throws
+    -> SimulatorApplicationListSnapshot
+  {
+    try Task.checkCancellation()
+    let applications = try await applicationCatalog.applications(for: deviceID)
+    try Task.checkCancellation()
+
+    do {
+      let memoryByBundleIdentifier = try await memoryInspector.applicationMemorySnapshots(
+        for: deviceID,
+        applications: applications
+      )
+      try Task.checkCancellation()
+      return SimulatorApplicationListSnapshot(
+        applications: applications,
+        memoryByBundleIdentifier: memoryByBundleIdentifier
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return SimulatorApplicationListSnapshot(
+        applications: applications,
+        memoryError: error.localizedDescription
+      )
+    }
+  }
+
+  public func dataContainer(
+    for deviceID: SimulatorID,
+    bundleIdentifier: String
+  ) async throws -> URL? {
+    try await applicationCatalog.dataContainer(
+      for: deviceID,
+      bundleIdentifier: bundleIdentifier
+    )
+  }
+
+  public func showSimulator(_ deviceID: SimulatorID) async throws {
+    try Task.checkCancellation()
+    let device = try await simulator.validatedDevice(deviceID)
+    guard device.state == .booted else {
+      throw SimulatorWorkspaceError.deviceNotBooted(deviceID)
+    }
+    try await simulator.openSimulator(deviceID)
+  }
+
   public func preview(_ operation: SimulatorOperation) async throws -> OperationPreview {
     try Task.checkCancellation()
     let previewGeneration = beginPreview(for: operation.deviceID)
@@ -204,12 +278,6 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       if !plan.unknownDisabledLabels.isEmpty {
         warnings.append("发现 \(plan.unknownDisabledLabels.count) 个非本应用管理的禁用项，将保持原样")
       }
-      let unavailableRuleCount =
-        catalog.applicableServices(runtimeVersion: context.runtimeVersion).count
-        - serviceState.presentLabels.count
-      if unavailableRuleCount > 0 {
-        warnings.append("当前系统运行时中有 \(unavailableRuleCount) 条目录规则已失效，将保持不动")
-      }
       if plan.changes.contains(where: { $0.risk == .high }) {
         warnings.append("该方案会停用高影响服务，请先确认相关能力不在本次测试范围内")
       }
@@ -218,7 +286,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
         title: "优化 \(context.device.name)",
         summary: plan.changes.isEmpty
           ? "设备已经符合所选方案，不需要修改服务。"
-          : "将按严格允许列表执行 \(plan.changes.count) 项差异，随后重启、验证并保存可恢复回执。",
+          : "将按严格允许列表执行 \(plan.changes.count) 项差异，随后重启、验证并保存恢复基线。",
         serviceChanges: plan.changes,
         warnings: warnings,
         requiresConfirmation: true
@@ -227,7 +295,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     case .verify(_, let receiptID):
       let source = try await receiptStore.receipt(id: receiptID)
       guard source.deviceID == operation.deviceID, source.kind == .optimize else {
-        throw SimulatorWorkspaceError.invalidOperation("该回执不能用于当前设备继续验证")
+        throw SimulatorWorkspaceError.invalidOperation("该恢复数据不能用于当前设备继续验证")
       }
       var changes = source.appliedChanges.filter(\.succeeded).map(\.change)
       if let pendingChange = source.pendingChange,
@@ -239,8 +307,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
         operation: operation,
         title: "继续验证 \(context.device.name)",
         summary: changes.isEmpty
-          ? "该回执尚未记录服务变更；将确认设备可用性和当前状态。"
-          : "将只读核对中断前已执行或结果未知的 \(changes.count) 项服务状态，并保存新的验证回执。",
+          ? "上次操作尚未记录服务变更；将确认设备可用性和当前状态。"
+          : "将只读核对中断前已执行或结果未知的 \(changes.count) 项服务状态，并保存新的验证结果。",
         serviceChanges: changes,
         warnings: sourcePowerStateWarnings(
           source: source,
@@ -253,10 +321,10 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     case .restore(_, let receiptID):
       let source = try await receiptStore.receipt(id: receiptID)
       guard source.deviceID == operation.deviceID, source.kind == .optimize else {
-        throw SimulatorWorkspaceError.invalidOperation("该回执不能用于当前设备恢复")
+        throw SimulatorWorkspaceError.invalidOperation("该恢复数据不能用于当前设备恢复")
       }
       guard source.baselineCapturedAt != nil else {
-        throw SimulatorWorkspaceError.invalidOperation("该回执在中断前尚未取得服务基线，不能执行恢复")
+        throw SimulatorWorkspaceError.invalidOperation("上次操作在中断前尚未取得服务基线，不能执行恢复")
       }
       let catalog = try requiredCatalog()
       let serviceState = try await serviceStateForPreview(context: context, catalog: catalog)
@@ -277,7 +345,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       )
       if !protectedBaselineLabels.isEmpty {
         warnings.append(
-          "回执基线中的 \(protectedBaselineLabels.count) 个关键服务不会被重新停用"
+          "恢复基线中的 \(protectedBaselineLabels.count) 个关键服务不会被重新停用"
         )
       }
       let touchedLabels = Set(
@@ -306,8 +374,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
         operation: operation,
         title: "恢复 \(context.device.name)",
         summary: changes.isEmpty
-          ? "当前服务状态已经与该回执基线一致。"
-          : "只会恢复该回执实际触及的允许列表服务，共 \(changes.count) 项。",
+          ? "当前服务状态已经与恢复基线一致。"
+          : "只会恢复上次操作实际触及的允许列表服务，共 \(changes.count) 项。",
         serviceChanges: changes,
         warnings: warnings,
         requiresConfirmation: true
@@ -550,15 +618,15 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     let candidates = Set(
       catalog.applicableServices(runtimeVersion: context.runtimeVersion).map(\.label)
     )
-    let loaded: Set<String>
+    let configured: Set<String>
     if let cached = knownServiceLabelsByDevice[context.device.id] {
-      loaded = cached
+      configured = cached
     } else {
-      loaded = try await simulator.presentServiceLabels(candidates, for: context.device.id)
+      configured = try await simulator.presentServiceLabels(candidates, for: context.device.id)
     }
-    // launchctl print 无法发现已经被禁用、因而未加载的 job；print-disabled 中的目录标签
-    // 仍是可恢复的有效服务，不能把它误判成 Runtime 不存在。
-    let confirmed = loaded.union(knownDisabledLabels.intersection(candidates))
+    // 不同 Runtime 的 domain 输出对未加载 job 的覆盖并不完全一致；额外合并
+    // print-disabled 中的目录标签，避免把已禁用但仍可恢复的服务误判为不存在。
+    let confirmed = configured.union(knownDisabledLabels.intersection(candidates))
     knownServiceLabelsByDevice[context.device.id] = confirmed
     return confirmed
   }
@@ -1301,15 +1369,15 @@ extension SimulatorWorkspace {
   ) async throws {
     var source = try await receiptStore.receipt(id: sourceReceiptID)
     guard source.deviceID == context.device.id, source.kind == .optimize else {
-      throw SimulatorWorkspaceError.invalidOperation("该回执不能用于当前设备恢复")
+      throw SimulatorWorkspaceError.invalidOperation("该恢复数据不能用于当前设备恢复")
     }
     if let runtimeIdentifier = source.runtimeIdentifier,
       runtimeIdentifier != context.device.runtimeIdentifier
     {
-      throw SimulatorWorkspaceError.invalidOperation("来源回执与当前设备的系统运行时不一致")
+      throw SimulatorWorkspaceError.invalidOperation("恢复数据与当前设备的系统运行时不一致")
     }
     guard source.baselineCapturedAt != nil else {
-      throw SimulatorWorkspaceError.invalidOperation("该回执在中断前尚未取得服务基线，不能执行恢复")
+      throw SimulatorWorkspaceError.invalidOperation("上次操作在中断前尚未取得服务基线，不能执行恢复")
     }
 
     try await ensureBooted(
@@ -1324,7 +1392,7 @@ extension SimulatorWorkspace {
       sourceCatalogVersion != catalog.schemaVersion
     {
       receipt.messages.append(
-        "来源回执使用服务目录版本 \(sourceCatalogVersion)，当前版本为 \(catalog.schemaVersion)"
+        "恢复数据使用服务目录版本 \(sourceCatalogVersion)，当前版本为 \(catalog.schemaVersion)"
       )
     }
     let presentLabels = try await presentServiceLabels(
@@ -1380,8 +1448,8 @@ extension SimulatorWorkspace {
       deviceID: receipt.deviceID,
       phase: .preparing,
       message: changes.isEmpty
-        ? "当前状态已经与回执基线一致"
-        : "将恢复回执实际触及的 \(changes.count) 项服务",
+        ? "当前状态已经与恢复基线一致"
+        : "将恢复上次操作实际触及的 \(changes.count) 项服务",
       totalCount: changes.count
     )
     let succeeded = try await applyServiceChanges(
@@ -1416,7 +1484,7 @@ extension SimulatorWorkspace {
   ) async throws {
     var source = try await receiptStore.receipt(id: sourceReceiptID)
     guard source.deviceID == context.device.id, source.kind == .optimize else {
-      throw SimulatorWorkspaceError.invalidOperation("该回执不能用于当前设备继续验证")
+      throw SimulatorWorkspaceError.invalidOperation("该恢复数据不能用于当前设备继续验证")
     }
 
     try await ensureBooted(
@@ -1426,7 +1494,7 @@ extension SimulatorWorkspace {
       reason: "继续验证服务状态"
     )
     receipt.baselineDisabledLabels = source.baselineDisabledLabels
-    receipt.messages.append("验证来源回执：\(source.id.rawValue.uuidString.lowercased())")
+    receipt.messages.append("验证来源数据：\(source.id.rawValue.uuidString.lowercased())")
     try await receiptStore.save(receipt)
 
     let provisionalCount =
@@ -1438,7 +1506,7 @@ extension SimulatorWorkspace {
       deviceID: receipt.deviceID,
       phase: .verifying,
       message: provisionalCount == 0
-        ? "回执未记录已执行变更，正在确认设备状态"
+        ? "上次操作未记录已执行变更，正在确认设备状态"
         : "正在只读核对中断前的 \(provisionalCount) 项服务状态",
       totalCount: provisionalCount
     )
@@ -1477,7 +1545,7 @@ extension SimulatorWorkspace {
         deviceID: receipt.deviceID,
         phase: .verifying,
         state: .warning,
-        message: "有 \(mismatches.count) 项状态与中断回执不一致",
+        message: "有 \(mismatches.count) 项状态与中断前记录不一致",
         completedCount: expectedChanges.count,
         totalCount: expectedChanges.count
       )
@@ -1937,7 +2005,7 @@ extension SimulatorWorkspace {
         deviceID: receipt.deviceID,
         phase: .verifying,
         state: .warning,
-        message: "有 \(mismatches.count) 项状态与计划不一致，请查看回执"
+        message: "有 \(mismatches.count) 项状态与计划不一致，请重新检查当前状态"
       )
     }
   }
@@ -2022,7 +2090,7 @@ extension SimulatorWorkspace {
     } else if receipt.originalDeviceState == .booted {
       receipt.finalDeviceState = .booted
     } else {
-      throw SimulatorWorkspaceError.invalidOperation("回执缺少稳定的原始电源状态")
+      throw SimulatorWorkspaceError.invalidOperation("恢复数据缺少稳定的原始电源状态")
     }
   }
 
@@ -2053,7 +2121,7 @@ extension SimulatorWorkspace {
   private func completionMessage(for receipt: OperationReceipt) -> String {
     switch receipt.status {
     case .succeeded: "操作完成并已验证"
-    case .partial: "操作部分完成，请查看回执"
+    case .partial: "操作部分完成，请确认当前状态"
     case .failed: "操作失败，请查看详细信息"
     case .cancelled: "操作已取消，已保留完成步骤"
     case .prepared, .running: "操作状态已保存"

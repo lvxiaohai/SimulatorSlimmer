@@ -65,6 +65,61 @@ public struct SimulatorRuntime: Codable, Hashable, Sendable, Identifiable {
   }
 }
 
+public struct SimulatorDeviceType: Codable, Hashable, Sendable, Identifiable {
+  public let id: String
+  public let name: String
+  public let productFamily: String
+  public let modelIdentifier: String?
+  public let minimumRuntimeVersion: String
+  public let maximumRuntimeVersion: String
+
+  public init(
+    id: String,
+    name: String,
+    productFamily: String,
+    modelIdentifier: String? = nil,
+    minimumRuntimeVersion: String,
+    maximumRuntimeVersion: String
+  ) {
+    self.id = id
+    self.name = name
+    self.productFamily = productFamily
+    self.modelIdentifier = modelIdentifier
+    self.minimumRuntimeVersion = minimumRuntimeVersion
+    self.maximumRuntimeVersion = maximumRuntimeVersion
+  }
+
+  public func supports(runtimeVersion: String) -> Bool {
+    minimumRuntimeVersion.compare(runtimeVersion, options: .numeric) != .orderedDescending
+      && maximumRuntimeVersion.compare(runtimeVersion, options: .numeric) != .orderedAscending
+  }
+}
+
+public struct SimulatorCreationOptions: Sendable {
+  public let runtimes: [SimulatorRuntime]
+  public let deviceTypes: [SimulatorDeviceType]
+
+  public init(
+    runtimes: [SimulatorRuntime],
+    deviceTypes: [SimulatorDeviceType]
+  ) {
+    self.runtimes = runtimes
+    self.deviceTypes = deviceTypes
+  }
+}
+
+public struct SimulatorCreationRequest: Sendable {
+  public let name: String
+  public let deviceTypeID: String
+  public let runtimeID: String
+
+  public init(name: String, deviceTypeID: String, runtimeID: String) {
+    self.name = name
+    self.deviceTypeID = deviceTypeID
+    self.runtimeID = runtimeID
+  }
+}
+
 public enum OptimizationSupportStatus: String, Codable, Hashable, Sendable {
   case supported
   case unavailableRuntime
@@ -156,6 +211,41 @@ public struct MemorySnapshot: Codable, Hashable, Sendable {
   }
 }
 
+public struct ApplicationMemorySnapshot: Codable, Hashable, Sendable {
+  public let bytes: Int64
+  public let processCount: Int
+  public let collectedAt: Date
+  public let method: String
+
+  public init(
+    bytes: Int64,
+    processCount: Int,
+    collectedAt: Date = Date(),
+    method: String = "physical-footprint (libproc)"
+  ) {
+    self.bytes = bytes
+    self.processCount = processCount
+    self.collectedAt = collectedAt
+    self.method = method
+  }
+}
+
+public struct SimulatorApplicationListSnapshot: Sendable {
+  public let applications: [SimulatorApplication]
+  public let memoryByBundleIdentifier: [String: ApplicationMemorySnapshot]
+  public let memoryError: String?
+
+  public init(
+    applications: [SimulatorApplication],
+    memoryByBundleIdentifier: [String: ApplicationMemorySnapshot] = [:],
+    memoryError: String? = nil
+  ) {
+    self.applications = applications
+    self.memoryByBundleIdentifier = memoryByBundleIdentifier
+    self.memoryError = memoryError
+  }
+}
+
 public enum ServiceRisk: String, Codable, CaseIterable, Comparable, Sendable {
   case low
   case moderate
@@ -231,6 +321,9 @@ public struct ServiceState: Codable, Hashable, Sendable, Identifiable {
   }
 
   public var id: String { service.id }
+  public var isOptimizationCandidate: Bool {
+    isPresent && !service.alwaysEnabled && service.risk != .protected
+  }
 }
 
 public enum OptimizationProfile: String, Codable, CaseIterable, Hashable, Sendable,
@@ -813,6 +906,7 @@ public struct WorkspaceOverview: Sendable {
 public enum SimulatorWorkspaceError: LocalizedError, Sendable {
   case xcodeToolsUnavailable(String)
   case deviceNotFound(SimulatorID)
+  case deviceNotBooted(SimulatorID)
   case deviceUnavailable(String)
   case invalidOperation(String)
   case commandFailed(command: String, code: Int32, message: String)
@@ -827,13 +921,14 @@ public enum SimulatorWorkspaceError: LocalizedError, Sendable {
     switch self {
     case .xcodeToolsUnavailable(let message): message
     case .deviceNotFound(let id): "找不到模拟器 \(id.rawValue)"
+    case .deviceNotBooted(let id): "模拟器 \(id.rawValue) 尚未启动"
     case .deviceUnavailable(let message): message
     case .invalidOperation(let message): message
     case .commandFailed(let command, let code, let message):
       "命令 \(command) 失败（\(code)）：\(message)"
     case .commandTimedOut(let command): "命令超时：\(command)"
     case .malformedOutput(let message): "无法解析系统输出：\(message)"
-    case .receiptNotFound(let id): "找不到操作回执 \(id.rawValue.uuidString)"
+    case .receiptNotFound(let id): "找不到内部恢复数据 \(id.rawValue.uuidString)"
     case .staleStoragePlan: "存储扫描结果已过期，请重新扫描"
     case .unsafePath(let path): "拒绝访问不安全路径：\(path)"
     case .operationAlreadyRunning(let id): "模拟器 \(id.rawValue) 已有操作正在运行"

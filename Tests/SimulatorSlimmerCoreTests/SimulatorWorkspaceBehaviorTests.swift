@@ -5,6 +5,48 @@ import Testing
 
 @Suite("工作区事务行为")
 struct SimulatorWorkspaceBehaviorTests {
+  @Test("显示模拟器直接执行且不创建操作回执")
+  func showingSimulatorSkipsOperationTransaction() async throws {
+    let simulator = WorkspaceSimulatorSpy(
+      device: makeWorkspaceDevice(
+        id: "10101010-2020-4030-8040-505050505050",
+        state: .booted
+      )
+    )
+    let receiptStore = WorkspaceReceiptStoreSpy()
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: receiptStore,
+      services: []
+    )
+
+    try await workspace.showSimulator(await simulator.deviceID)
+
+    #expect(await simulator.mutatingCommands() == ["open"])
+    #expect(try await receiptStore.allReceipts().isEmpty)
+    #expect(await simulator.servicePresenceProbeCount() == 0)
+  }
+
+  @Test("显示模拟器拒绝在轻量路径中启动关机设备")
+  func showingSimulatorRequiresBootedDevice() async throws {
+    let simulator = WorkspaceSimulatorSpy(
+      device: makeWorkspaceDevice(
+        id: "11111111-3030-4040-8050-606060606060",
+        state: .shutdown
+      )
+    )
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(),
+      services: []
+    )
+
+    await #expect(throws: SimulatorWorkspaceError.self) {
+      try await workspace.showSimulator(await simulator.deviceID)
+    }
+    #expect(await simulator.mutatingCommands().isEmpty)
+  }
+
   @Test("首次保存回执失败时不执行任何设备变更")
   func receiptFailurePreventsMutation() async throws {
     let simulator = WorkspaceSimulatorSpy(
@@ -157,6 +199,41 @@ struct SimulatorWorkspaceBehaviorTests {
     let reclaimedBytes = try #require(receipt.reclaimedBytes)
     #expect(reclaimedBytes == Int64(192 * 1_024 * 1_024))
     #expect(receipt.messages.contains { $0.contains("内存对比条件") })
+  }
+
+  @Test("应用内存采集失败时仍返回应用清单")
+  func applicationMemoryFailureKeepsApplicationCatalog() async throws {
+    let device = makeWorkspaceDevice(
+      id: "45454545-5656-4787-8989-909090909090",
+      state: .booted
+    )
+    let catalog = SimulatorApplicationCatalog(
+      runner: WorkspaceApplicationCatalogRunner(
+        output: """
+          {
+            "com.example.demo" = {
+              ApplicationType = User;
+              Bundle = "file:///tmp/SimulatorSlimmer-Demo.app/";
+              CFBundleDisplayName = "演示应用";
+              CFBundleIdentifier = "com.example.demo";
+            };
+          }
+          """
+      )
+    )
+    let workspace = makeWorkspace(
+      simulator: WorkspaceSimulatorSpy(device: device),
+      receiptStore: WorkspaceReceiptStoreSpy(),
+      services: [],
+      memoryInspector: WorkspaceFailingApplicationMemoryInspector(),
+      applicationCatalog: catalog
+    )
+
+    let result = try await workspace.applications(for: device.id)
+
+    #expect(result.applications.map(\.bundleIdentifier) == ["com.example.demo"])
+    #expect(result.memoryByBundleIdentifier.isEmpty)
+    #expect(result.memoryError == "模拟失败")
   }
 
   @Test("存储清理每完成一个目标都会持久化进度")
@@ -1868,6 +1945,35 @@ private actor WorkspaceMemorySequenceStub: MemoryInspecting {
   }
 }
 
+private struct WorkspaceFailingApplicationMemoryInspector: MemoryInspecting {
+  func snapshot(for deviceID: SimulatorID) async throws -> MemorySnapshot {
+    MemorySnapshot(bytes: 128 * 1_024 * 1_024, processCount: 4)
+  }
+
+  func applicationMemorySnapshots(
+    for deviceID: SimulatorID,
+    applications: [SimulatorApplication]
+  ) async throws -> [String: ApplicationMemorySnapshot] {
+    throw WorkspaceTestError.simulatedFailure
+  }
+}
+
+private actor WorkspaceApplicationCatalogRunner: CommandRunning {
+  private let output: String
+
+  init(output: String) {
+    self.output = output
+  }
+
+  func run(_ command: Command) async throws -> CommandOutput {
+    CommandOutput(
+      standardOutput: output,
+      standardError: "",
+      exitCode: 0
+    )
+  }
+}
+
 private actor WorkspaceStorageManagerStub: StorageManaging {
   private var storedLatestPlan: StoragePlan?
   private let cleanupProgress: [StorageCleanupProgress]
@@ -1930,6 +2036,7 @@ private func makeWorkspace(
   memoryInspector: any MemoryInspecting = WorkspaceMemoryInspectorStub(),
   operationGate: OperationGate = OperationGate(),
   storageManager: any StorageManaging = WorkspaceStorageManagerStub(),
+  applicationCatalog: SimulatorApplicationCatalog = SimulatorApplicationCatalog(),
   serviceMutationConfirmationLifetime: Duration = .seconds(300)
 ) -> SimulatorWorkspace {
   let category = ServiceCategory(
@@ -1943,6 +2050,7 @@ private func makeWorkspace(
     memoryInspector: memoryInspector,
     receiptStore: receiptStore,
     storageManager: storageManager,
+    applicationCatalog: applicationCatalog,
     operationGate: operationGate,
     catalog: ServiceCatalog(
       schemaVersion: 1,

@@ -17,9 +17,11 @@ enum WorkspaceFactory {
   /// 仅供 UI 测试使用，让界面状态不依赖开发机上的 Simulator 环境。
   private actor ScriptedSimulatorWorkspace: SimulatorWorkspaceClient {
     private let mode: Mode
+    private let phaseDelay: Duration
     private let runtime: SimulatorRuntime
-    private let phone: SimulatorDevice
-    private let tablet: SimulatorDevice
+    private var phone: SimulatorDevice
+    private var tablet: SimulatorDevice
+    private var createdDevices: [SimulatorDevice] = []
     private var receipts: [OperationReceipt] = []
     private var storageScanned = false
 
@@ -30,10 +32,14 @@ enum WorkspaceFactory {
       case partial
       case interrupted
       case unsupported
-      case opaqueReceipts
     }
 
     init(arguments: [String]) {
+      phaseDelay =
+        arguments.contains("--ui-testing-slow-progress")
+        ? .seconds(2)
+        : .milliseconds(180)
+
       if arguments.contains("--ui-testing-empty") {
         mode = .empty
       } else if arguments.contains("--ui-testing-error") {
@@ -44,8 +50,6 @@ enum WorkspaceFactory {
         mode = .interrupted
       } else if arguments.contains("--ui-testing-unsupported") {
         mode = .unsupported
-      } else if arguments.contains("--ui-testing-opaque-receipts") {
-        mode = .opaqueReceipts
       } else {
         mode = .ready
       }
@@ -108,8 +112,6 @@ enum WorkspaceFactory {
             messages: ["进程退出前已保存操作进度，可继续进行只读验证。"]
           )
         ]
-      } else if mode == .opaqueReceipts {
-        receipts = Self.opaqueReceipts(phone: phone, tablet: tablet)
       }
     }
 
@@ -119,10 +121,10 @@ enum WorkspaceFactory {
           "未找到模拟器命令行工具，请检查开发工具设置。"
         )
       }
-      let devices = mode == .empty ? [] : [phone, tablet]
+      let devices = mode == .empty ? createdDevices : [phone, tablet] + createdDevices
       return WorkspaceOverview(
         inventory: SimulatorInventory(
-          runtimes: mode == .empty ? [] : [runtime],
+          runtimes: [runtime],
           devices: devices
         ),
         recentReceipts: receipts,
@@ -130,13 +132,58 @@ enum WorkspaceFactory {
       )
     }
 
+    func simulatorCreationOptions() async throws -> SimulatorCreationOptions {
+      SimulatorCreationOptions(
+        runtimes: [runtime],
+        deviceTypes: [
+          SimulatorDeviceType(
+            id: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+            name: "iPhone 17 Pro",
+            productFamily: "iPhone",
+            modelIdentifier: "iPhone18,1",
+            minimumRuntimeVersion: "26.0",
+            maximumRuntimeVersion: "99.0"
+          ),
+          SimulatorDeviceType(
+            id: "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5",
+            name: "iPad Pro 13-inch (M5)",
+            productFamily: "iPad",
+            modelIdentifier: "iPad16,6",
+            minimumRuntimeVersion: "26.0",
+            maximumRuntimeVersion: "99.0"
+          ),
+        ]
+      )
+    }
+
+    func createSimulator(_ request: SimulatorCreationRequest) async throws -> SimulatorID {
+      let options = try await simulatorCreationOptions()
+      guard options.runtimes.contains(where: { $0.id == request.runtimeID }),
+        options.deviceTypes.contains(where: { $0.id == request.deviceTypeID })
+      else {
+        throw SimulatorWorkspaceError.invalidOperation("设备类型或系统运行时无效")
+      }
+      let trimmedName = request.name.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmedName.isEmpty else {
+        throw SimulatorWorkspaceError.invalidOperation("设备名称不能为空")
+      }
+      let id = SimulatorID(rawValue: UUID().uuidString.uppercased())
+      createdDevices.append(
+        SimulatorDevice(
+          id: id,
+          name: trimmedName,
+          runtimeIdentifier: runtime.id,
+          runtimeName: runtime.name,
+          deviceTypeIdentifier: request.deviceTypeID,
+          state: .shutdown,
+          isAvailable: true
+        )
+      )
+      return id
+    }
+
     func inspect(_ deviceID: SimulatorID) async throws -> DeviceSnapshot {
-      let device: SimulatorDevice
-      if deviceID == phone.id {
-        device = phone
-      } else if deviceID == tablet.id {
-        device = tablet
-      } else {
+      guard let device = currentDevice(for: deviceID) else {
         throw SimulatorWorkspaceError.deviceNotFound(deviceID)
       }
 
@@ -163,15 +210,113 @@ enum WorkspaceFactory {
       )
     }
 
+    func applications(for deviceID: SimulatorID) async throws
+      -> SimulatorApplicationListSnapshot
+    {
+      guard let device = currentDevice(for: deviceID) else {
+        throw SimulatorWorkspaceError.deviceNotFound(deviceID)
+      }
+      guard device.state == .booted else {
+        throw SimulatorWorkspaceError.deviceNotBooted(deviceID)
+      }
+
+      let applications = [
+        SimulatorApplication(
+          kind: .user,
+          displayName: "示例商城",
+          bundleIdentifier: "com.example.store",
+          bundleURL: nil,
+          dataContainerURL: nil,
+          marketingVersion: "2.3.0",
+          buildVersion: "42",
+          icon: SimulatorApplicationIcon()
+        ),
+        SimulatorApplication(
+          kind: .user,
+          displayName: "调试工具",
+          bundleIdentifier: "com.example.debugger",
+          bundleURL: nil,
+          dataContainerURL: nil,
+          marketingVersion: "1.0",
+          buildVersion: "7",
+          icon: SimulatorApplicationIcon()
+        ),
+        SimulatorApplication(
+          kind: .system,
+          displayName: "设置",
+          bundleIdentifier: "com.apple.Preferences",
+          bundleURL: nil,
+          dataContainerURL: nil,
+          marketingVersion: nil,
+          buildVersion: "1",
+          icon: SimulatorApplicationIcon()
+        ),
+        SimulatorApplication(
+          kind: .unknown,
+          displayName: "开发辅助进程",
+          bundleIdentifier: "com.example.helper",
+          bundleURL: nil,
+          dataContainerURL: nil,
+          marketingVersion: nil,
+          buildVersion: nil,
+          icon: SimulatorApplicationIcon()
+        ),
+      ]
+      return SimulatorApplicationListSnapshot(
+        applications: applications,
+        memoryByBundleIdentifier: [
+          "com.example.store": ApplicationMemorySnapshot(
+            bytes: 184_549_376,
+            processCount: 2,
+            collectedAt: Date()
+          ),
+          "com.example.helper": ApplicationMemorySnapshot(
+            bytes: 12_582_912,
+            processCount: 1,
+            collectedAt: Date()
+          ),
+        ]
+      )
+    }
+
+    func dataContainer(
+      for deviceID: SimulatorID,
+      bundleIdentifier: String
+    ) async throws -> URL? {
+      guard let device = currentDevice(for: deviceID) else {
+        throw SimulatorWorkspaceError.deviceNotFound(deviceID)
+      }
+      guard device.state == .booted else {
+        throw SimulatorWorkspaceError.deviceNotBooted(deviceID)
+      }
+      return nil
+    }
+
+    func showSimulator(_ deviceID: SimulatorID) async throws {
+      guard let device = currentDevice(for: deviceID) else {
+        throw SimulatorWorkspaceError.deviceNotFound(deviceID)
+      }
+      guard device.state == .booted else {
+        throw SimulatorWorkspaceError.deviceNotBooted(deviceID)
+      }
+    }
+
     func preview(_ operation: SimulatorOperation) async throws -> OperationPreview {
       switch operation {
-      case .optimize(let deviceID, let profile, _):
+      case .optimize(let deviceID, let profile, let customDisabledLabels):
         let snapshot = try await inspect(deviceID)
+        let changes =
+          profile == .custom
+          ? Self.customChanges(
+            selectedLabels: customDisabledLabels,
+            services: snapshot.services
+          )
+          : snapshot.plans[profile]?.changes ?? []
         return OperationPreview(
           operation: operation,
           title: "优化计划",
           summary: "仅修改预览中列出的模拟器后台服务；完成后会重新读取状态并保存恢复基线。",
-          serviceChanges: snapshot.plans[profile]?.changes ?? [],
+          serviceChanges: changes,
           warnings: profile == .efficient ? ["高效方案可能影响部分系统级测试场景。"] : []
         )
       case .verify(let deviceID, let receiptID):
@@ -181,7 +326,7 @@ enum WorkspaceFactory {
         return OperationPreview(
           operation: operation,
           title: "继续验证",
-          summary: "只读核对中断前已执行的服务状态，并保存一份新的验证回执。",
+          summary: "只读核对中断前已执行的服务状态，并保存新的验证结果。",
           serviceChanges: source.appliedChanges.filter(\.succeeded).map(\.change),
           warnings: deviceID == tablet.id ? ["验证期间可能短暂启动这台模拟器。"] : [],
           requiresConfirmation: true
@@ -202,7 +347,7 @@ enum WorkspaceFactory {
         return OperationPreview(
           operation: operation,
           title: operation.kind.localizedDebugTitle,
-          summary: "操作将在精确校验设备 UDID 后执行，并记录完整回执。",
+          summary: "操作将在精确校验设备 UDID 后执行，并记录完整结果。",
           requiresConfirmation: operation.kind == .erase || operation.kind == .delete
         )
       }
@@ -213,11 +358,12 @@ enum WorkspaceFactory {
     ) async -> AsyncThrowingStream<OperationEvent, Error> {
       let operationID = ReceiptID()
       let phases = Self.phases(for: operation.kind)
+      let phaseDelay = phaseDelay
       return AsyncThrowingStream { continuation in
         let task = Task { [weak self] in
           do {
             for (index, phase) in phases.enumerated() {
-              try await Task.sleep(for: .milliseconds(180))
+              try await Task.sleep(for: phaseDelay)
               try Task.checkCancellation()
               continuation.yield(
                 OperationEvent(
@@ -268,8 +414,18 @@ enum WorkspaceFactory {
       _ operation: SimulatorOperation,
       operationID: ReceiptID
     ) -> OperationReceipt {
+      let originalState = currentDevice(for: operation.deviceID)?.state ?? .unknown
       if operation.kind == .scanStorage {
         storageScanned = true
+      }
+      switch operation.kind {
+      case .boot:
+        updateDevice(operation.deviceID, state: .booted)
+      case .shutdown:
+        updateDevice(operation.deviceID, state: .shutdown)
+      case .preflight, .optimize, .verify, .restore, .scanStorage, .cleanStorage,
+        .openSimulator, .erase, .delete, .clone:
+        break
       }
       let isPartial =
         mode == .partial && operation.kind == .optimize && operation.deviceID == tablet.id
@@ -293,8 +449,8 @@ enum WorkspaceFactory {
         deviceName: operation.deviceID == phone.id ? phone.name : tablet.name,
         status: isPartial ? .partial : .succeeded,
         finishedAt: Date(),
-        originalDeviceState: operation.deviceID == phone.id ? .booted : .shutdown,
-        finalDeviceState: operation.deviceID == phone.id ? .booted : .shutdown,
+        originalDeviceState: originalState,
+        finalDeviceState: currentDevice(for: operation.deviceID)?.state ?? originalState,
         appliedChanges: applied,
         memoryBefore: operation.kind == .optimize
           ? MemorySnapshot(bytes: 3_984_572_416, processCount: 214)
@@ -309,6 +465,43 @@ enum WorkspaceFactory {
       )
       receipts.insert(receipt, at: 0)
       return receipt
+    }
+
+    private func currentDevice(for deviceID: SimulatorID) -> SimulatorDevice? {
+      if deviceID == phone.id { return phone }
+      if deviceID == tablet.id { return tablet }
+      return createdDevices.first { $0.id == deviceID }
+    }
+
+    private func updateDevice(_ deviceID: SimulatorID, state: SimulatorState) {
+      if deviceID == phone.id {
+        phone = Self.device(phone, replacingStateWith: state)
+      } else if deviceID == tablet.id {
+        tablet = Self.device(tablet, replacingStateWith: state)
+      } else if let index = createdDevices.firstIndex(where: { $0.id == deviceID }) {
+        createdDevices[index] = Self.device(createdDevices[index], replacingStateWith: state)
+      }
+    }
+
+    private static func device(
+      _ device: SimulatorDevice,
+      replacingStateWith state: SimulatorState
+    ) -> SimulatorDevice {
+      SimulatorDevice(
+        id: device.id,
+        name: device.name,
+        runtimeIdentifier: device.runtimeIdentifier,
+        runtimeName: device.runtimeName,
+        deviceTypeIdentifier: device.deviceTypeIdentifier,
+        state: state,
+        isAvailable: device.isAvailable,
+        availabilityError: device.availabilityError,
+        dataPath: device.dataPath,
+        logPath: device.logPath,
+        dataSize: device.dataSize,
+        logSize: device.logSize,
+        lastBootedAt: state == .booted ? Date() : device.lastBootedAt
+      )
     }
 
     private static let categories = [
@@ -415,54 +608,6 @@ enum WorkspaceFactory {
       )
     }
 
-    private static func opaqueReceipts(
-      phone: SimulatorDevice,
-      tablet: SimulatorDevice
-    ) -> [OperationReceipt] {
-      [
-        OperationReceipt(
-          id: ReceiptID(
-            rawValue: UUID(uuidString: "2AF81128-F810-465B-9C9F-F9C702CC3752") ?? UUID()
-          ),
-          schemaVersion: 2,
-          kind: .optimize,
-          deviceID: phone.id,
-          deviceName: phone.name,
-          status: .failed,
-          startedAt: Date().addingTimeInterval(-240),
-          finishedAt: Date().addingTimeInterval(-238),
-          originalDeviceState: .booted,
-          messages: ["结构版本 2 尚不受支持，只能读取或导出。"],
-          opaquePayload: OpaqueReceiptPayload(
-            reason: .unsupportedSchema,
-            sourceFileName: "future-receipt.json",
-            rawJSON: "{\"schemaVersion\":2}",
-            errorMessage: "结构版本 2 尚不受支持"
-          )
-        ),
-        OperationReceipt(
-          id: ReceiptID(
-            rawValue: UUID(uuidString: "A94AA544-95B3-4663-A31D-D78E2A1E139E") ?? UUID()
-          ),
-          schemaVersion: 0,
-          kind: .optimize,
-          deviceID: tablet.id,
-          deviceName: tablet.name,
-          status: .failed,
-          startedAt: Date().addingTimeInterval(-360),
-          finishedAt: Date().addingTimeInterval(-358),
-          originalDeviceState: .shutdown,
-          messages: ["JSON 无法解析，只能保留原始内容。"],
-          opaquePayload: OpaqueReceiptPayload(
-            reason: .corrupted,
-            sourceFileName: "broken-receipt.json",
-            rawJSON: "{",
-            errorMessage: "JSON 无法解析"
-          )
-        ),
-      ]
-    }
-
     private static func changes(
       for profile: OptimizationProfile,
       services: [ServiceState]
@@ -482,6 +627,29 @@ enum WorkspaceFactory {
           impact: state.service.impact,
           currentDisabled: state.isDisabled,
           targetDisabled: true
+        )
+      }
+    }
+
+    private static func customChanges(
+      selectedLabels: Set<String>,
+      services: [ServiceState]
+    ) -> [ServiceChange] {
+      services.compactMap { state in
+        guard !state.service.alwaysEnabled, state.service.risk != .protected else {
+          return nil
+        }
+        let shouldDisable = selectedLabels.contains(state.service.label)
+        guard state.isDisabled != shouldDisable else { return nil }
+        return ServiceChange(
+          label: state.service.label,
+          serviceName: state.service.name,
+          categoryID: state.service.categoryID,
+          risk: state.service.risk,
+          transition: shouldDisable ? .disable : .enable,
+          impact: state.service.impact,
+          currentDisabled: state.isDisabled,
+          targetDisabled: shouldDisable
         )
       }
     }
@@ -610,7 +778,7 @@ enum WorkspaceFactory {
       case .erase: "抹掉模拟器内容"
       case .delete: "删除模拟器"
       case .clone: "克隆模拟器"
-      case .openSimulator: "打开 Apple 模拟器"
+      case .openSimulator: "显示 Apple 模拟器"
       }
     }
   }

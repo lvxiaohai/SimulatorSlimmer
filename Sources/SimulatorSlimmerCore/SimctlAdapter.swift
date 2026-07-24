@@ -2,6 +2,8 @@ import Foundation
 
 protocol SimulatorControlling: Sendable {
   func inventory() async throws -> SimulatorInventory
+  func availableDeviceTypes() async throws -> [SimulatorDeviceType]
+  func create(_ request: SimulatorCreationRequest) async throws -> SimulatorID
   func validatedDevice(_ id: SimulatorID) async throws -> SimulatorDevice
   func disabledLabels(for id: SimulatorID) async throws -> Set<String>
   func presentServiceLabels(
@@ -21,11 +23,22 @@ protocol SimulatorControlling: Sendable {
   func openSimulator(_ id: SimulatorID) async throws
 }
 
+extension SimulatorControlling {
+  func availableDeviceTypes() async throws -> [SimulatorDeviceType] {
+    throw SimulatorWorkspaceError.invalidOperation("当前模拟器控制器不支持读取设备类型")
+  }
+
+  func create(_ request: SimulatorCreationRequest) async throws -> SimulatorID {
+    throw SimulatorWorkspaceError.invalidOperation("当前模拟器控制器不支持创建模拟器")
+  }
+}
+
 struct SimctlAdapter: SimulatorControlling, Sendable {
   private let runner: any CommandRunning
   private let decoder: JSONDecoder
   private let xcrunURL = URL(fileURLWithPath: "/usr/bin/xcrun")
   private let openURL = URL(fileURLWithPath: "/usr/bin/open")
+  private static let launchdDomain = "user/foreground"
 
   init(runner: any CommandRunning = FoundationCommandRunner()) {
     self.runner = runner
@@ -66,17 +79,23 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
     let iOSRuntimeRecords = runtimeDocument.runtimes.filter {
       $0.identifier.hasPrefix("com.apple.CoreSimulator.SimRuntime.iOS-")
     }
-    let runtimes = iOSRuntimeRecords.map {
-      SimulatorRuntime(
-        id: $0.identifier,
-        name: $0.name,
-        version: $0.version,
-        build: $0.buildversion,
-        isAvailable: $0.isAvailable
-      )
-    }
+    let runtimes =
+      iOSRuntimeRecords
+      .map {
+        SimulatorRuntime(
+          id: $0.identifier,
+          name: $0.name,
+          version: $0.version,
+          build: $0.buildversion,
+          isAvailable: $0.isAvailable
+        )
+      }
+      .sorted(by: Self.runtimeComesBefore)
     let runtimeNames = Dictionary(uniqueKeysWithValues: runtimes.map { ($0.id, $0.name) })
     let runtimesByID = Dictionary(uniqueKeysWithValues: runtimes.map { ($0.id, $0) })
+    let runtimeRanks = Dictionary(
+      uniqueKeysWithValues: runtimes.enumerated().map { ($0.element.id, $0.offset) }
+    )
 
     let devices: [SimulatorDevice] = deviceDocument.devices.flatMap {
       entry -> [SimulatorDevice] in
@@ -104,11 +123,87 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
       }
     }
     .sorted {
-      if $0.runtimeName != $1.runtimeName { return $0.runtimeName > $1.runtimeName }
+      let leftRank = runtimeRanks[$0.runtimeIdentifier] ?? Int.max
+      let rightRank = runtimeRanks[$1.runtimeIdentifier] ?? Int.max
+      if leftRank != rightRank { return leftRank < rightRank }
       return $0.name.localizedStandardCompare($1.name) == .orderedAscending
     }
 
     return SimulatorInventory(runtimes: runtimes, devices: devices)
+  }
+
+  func availableDeviceTypes() async throws -> [SimulatorDeviceType] {
+    let output = try await runner.run(
+      Command(
+        executable: xcrunURL,
+        arguments: ["simctl", "list", "devicetypes", "-j"]
+      )
+    )
+    let document: DeviceTypeDocument
+    do {
+      document = try decoder.decode(
+        DeviceTypeDocument.self,
+        from: Data(output.standardOutput.utf8)
+      )
+    } catch {
+      throw SimulatorWorkspaceError.malformedOutput(error.localizedDescription)
+    }
+
+    return document.devicetypes
+      .filter { $0.productFamily == "iPhone" || $0.productFamily == "iPad" }
+      .map {
+        SimulatorDeviceType(
+          id: $0.identifier,
+          name: $0.name,
+          productFamily: $0.productFamily,
+          modelIdentifier: $0.modelIdentifier,
+          minimumRuntimeVersion: $0.minRuntimeVersionString,
+          maximumRuntimeVersion: $0.maxRuntimeVersionString
+        )
+      }
+  }
+
+  func create(_ request: SimulatorCreationRequest) async throws -> SimulatorID {
+    let name = try Self.validatedDeviceName(request.name)
+    guard request.deviceTypeID.hasPrefix("com.apple.CoreSimulator.SimDeviceType."),
+      request.runtimeID.hasPrefix("com.apple.CoreSimulator.SimRuntime.iOS-")
+    else {
+      throw SimulatorWorkspaceError.invalidOperation("设备类型或系统运行时无效")
+    }
+
+    let output = try await runner.run(
+      Command(
+        executable: xcrunURL,
+        arguments: [
+          "simctl", "create", name, request.deviceTypeID, request.runtimeID,
+        ],
+        timeout: .seconds(180)
+      )
+    )
+    let candidate = output.standardOutput
+      .split(whereSeparator: { $0.isWhitespace })
+      .map(String.init)
+      .first(where: Self.isValidUDID)
+    guard let candidate else {
+      throw SimulatorWorkspaceError.malformedOutput("创建成功但未返回新设备 UDID")
+    }
+    return SimulatorID(rawValue: candidate.uppercased())
+  }
+
+  private static func runtimeComesBefore(
+    _ lhs: SimulatorRuntime,
+    _ rhs: SimulatorRuntime
+  ) -> Bool {
+    let versionOrder = lhs.version.compare(rhs.version, options: .numeric)
+    if versionOrder != .orderedSame {
+      return versionOrder == .orderedDescending
+    }
+
+    let buildOrder = (lhs.build ?? "").compare(rhs.build ?? "", options: .numeric)
+    if buildOrder != .orderedSame {
+      return buildOrder == .orderedDescending
+    }
+    return lhs.id < rhs.id
   }
 
   func validatedDevice(_ id: SimulatorID) async throws -> SimulatorDevice {
@@ -136,7 +231,7 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
         executable: xcrunURL,
         arguments: [
           "simctl", "spawn", id.rawValue,
-          "launchctl", "print-disabled", "system",
+          "launchctl", "print-disabled", Self.launchdDomain,
         ]
       )
     )
@@ -154,47 +249,19 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
       throw SimulatorWorkspaceError.invalidOperation("无效的 launchd 服务标签")
     }
 
-    let orderedLabels = labels.sorted()
-    var present = Set<String>()
-    let batchSize = 8
-    for offset in stride(from: 0, to: orderedLabels.count, by: batchSize) {
-      try Task.checkCancellation()
-      let upperBound = min(offset + batchSize, orderedLabels.count)
-      let batch = orderedLabels[offset..<upperBound]
-      let results = try await withThrowingTaskGroup(of: ServicePresenceResult.self) { group in
-        for label in batch {
-          group.addTask {
-            do {
-              _ = try await runner.run(
-                Command(
-                  executable: xcrunURL,
-                  arguments: [
-                    "simctl", "spawn", id.rawValue,
-                    "launchctl", "print", "system/\(label)",
-                  ],
-                  timeout: .seconds(10),
-                  outputLimit: 2 * 1_024 * 1_024
-                )
-              )
-              return ServicePresenceResult(label: label, isPresent: true)
-            } catch SimulatorWorkspaceError.commandFailed(_, let code, let message)
-              where code == 113
-              || message.localizedCaseInsensitiveContains("could not find service")
-            {
-              return ServicePresenceResult(label: label, isPresent: false)
-            }
-          }
-        }
-
-        var batchResults: [ServicePresenceResult] = []
-        for try await result in group {
-          batchResults.append(result)
-        }
-        return batchResults
-      }
-      present.formUnion(results.filter(\.isPresent).map(\.label))
-    }
-    return present
+    let output = try await runner.run(
+      Command(
+        executable: xcrunURL,
+        arguments: [
+          "simctl", "spawn", id.rawValue,
+          "launchctl", "print", Self.launchdDomain,
+        ],
+        timeout: .seconds(10),
+        outputLimit: 8 * 1_024 * 1_024
+      )
+    )
+    let configuredLabels = Self.parseLaunchdDomainLabels(output.standardOutput)
+    return labels.intersection(configuredLabels)
   }
 
   func setService(
@@ -215,7 +282,7 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
         executable: xcrunURL,
         arguments: [
           "simctl", "spawn", deviceID.rawValue,
-          "launchctl", action, "system/\(label)",
+          "launchctl", action, "\(Self.launchdDomain)/\(label)",
         ]
       )
     )
@@ -297,8 +364,10 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
   }
 
   func openSimulator(_ id: SimulatorID) async throws {
-    _ = try await validatedDevice(id)
-    try await boot(id)
+    let device = try await validatedDevice(id)
+    guard device.state == .booted else {
+      throw SimulatorWorkspaceError.deviceNotBooted(id)
+    }
     _ = try await runner.run(
       Command(
         executable: openURL,
@@ -325,6 +394,55 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
     return result
   }
 
+  static func parseLaunchdDomainLabels(_ output: String) -> Set<String> {
+    enum Section {
+      case none
+      case services
+      case disabledServices
+    }
+
+    var result = Set<String>()
+    let punctuation = CharacterSet(charactersIn: "\"'(){}[],;")
+    var section = Section.none
+
+    for line in output.split(whereSeparator: \.isNewline) {
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      switch trimmed {
+      case "services = {":
+        section = .services
+        continue
+      case "disabled services = {":
+        section = .disabledServices
+        continue
+      case "}":
+        section = .none
+        continue
+      default:
+        break
+      }
+
+      if section == .disabledServices, let quoteStart = line.firstIndex(of: "\"") {
+        let labelStart = line.index(after: quoteStart)
+        if let quoteEnd = line[labelStart...].firstIndex(of: "\"") {
+          let label = String(line[labelStart..<quoteEnd])
+          if label.contains("."), isValidLaunchdLabel(label) {
+            result.insert(label)
+          }
+        }
+      }
+
+      guard section == .services else { continue }
+      guard let lastToken = line.split(whereSeparator: \.isWhitespace).last else {
+        continue
+      }
+      let label = String(lastToken).trimmingCharacters(in: punctuation)
+      if label.contains("."), isValidLaunchdLabel(label) {
+        result.insert(label)
+      }
+    }
+    return result
+  }
+
   static func isValidUDID(_ rawValue: String) -> Bool {
     guard rawValue.count == 36, let uuid = UUID(uuidString: rawValue) else { return false }
     return uuid.uuidString.caseInsensitiveCompare(rawValue) == .orderedSame
@@ -344,6 +462,18 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
     else {
       throw SimulatorWorkspaceError.invalidOperation(
         "克隆名称不能为空、不能超过 128 个字符，且不能包含换行符"
+      )
+    }
+    return trimmedName
+  }
+
+  static func validatedDeviceName(_ name: String) throws -> String {
+    let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedName.isEmpty, trimmedName.count <= 128,
+      !trimmedName.contains(where: { $0.isNewline })
+    else {
+      throw SimulatorWorkspaceError.invalidOperation(
+        "设备名称不能为空、不能超过 128 个字符，且不能包含换行符"
       )
     }
     return trimmedName
@@ -375,11 +505,6 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
   }
 }
 
-private struct ServicePresenceResult: Sendable {
-  let label: String
-  let isPresent: Bool
-}
-
 private struct RuntimeDocument: Decodable {
   let runtimes: [RuntimeRecord]
 }
@@ -395,6 +520,19 @@ private struct RuntimeRecord: Decodable {
 
 private struct DeviceDocument: Decodable {
   let devices: [String: [DeviceRecord]]
+}
+
+private struct DeviceTypeDocument: Decodable {
+  let devicetypes: [DeviceTypeRecord]
+}
+
+private struct DeviceTypeRecord: Decodable {
+  let identifier: String
+  let name: String
+  let productFamily: String
+  let modelIdentifier: String?
+  let minRuntimeVersionString: String
+  let maxRuntimeVersionString: String
 }
 
 private struct DeviceRecord: Decodable {

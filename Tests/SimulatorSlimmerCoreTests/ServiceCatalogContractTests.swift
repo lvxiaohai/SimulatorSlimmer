@@ -81,9 +81,12 @@ struct ServiceCatalogContractTests {
     ]
     let protectedServices = catalog.services.filter(\.alwaysEnabled)
     let protectedLabels = Set(protectedServices.map(\.label))
+    let optimizationCandidates = catalog.services.filter {
+      !$0.alwaysEnabled && $0.risk != .protected
+    }
 
-    #expect(requiredLabels.isSubset(of: protectedLabels))
-    #expect(!protectedServices.isEmpty)
+    #expect(protectedLabels == requiredLabels)
+    #expect(optimizationCandidates.count == 102)
 
     for service in catalog.services {
       if service.alwaysEnabled {
