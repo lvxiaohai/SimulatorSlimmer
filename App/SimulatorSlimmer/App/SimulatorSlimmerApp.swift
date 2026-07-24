@@ -189,6 +189,9 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
 
     let submenu = NSMenu()
     submenu.autoenablesItems = false
+    submenu.addItem(disabledItem(title: "点击应用打开数据目录"))
+    submenu.addItem(.separator())
+
     if item.applications.isEmpty {
       submenu.addItem(
         disabledItem(
@@ -205,6 +208,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
           action: #selector(openApplicationDataContainer)
         )
         applicationItem.image = application.icon ?? symbolImage("app")
+        applicationItem.toolTip = "打开 \(application.application.displayName) 的数据目录"
         applicationItem.representedObject = MenuBarApplicationAction(
           application: application.application,
           deviceID: device.id
