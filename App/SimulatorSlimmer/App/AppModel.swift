@@ -1546,6 +1546,7 @@ final class MenuBarModel {
 
   func refresh() {
     refreshTask?.cancel()
+    devices = []
     isRefreshing = true
     refreshError = nil
 

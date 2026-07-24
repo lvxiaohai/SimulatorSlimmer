@@ -62,7 +62,7 @@ private struct MenuBarContent: View {
         openWindow(id: "main")
         NSApp.activate(ignoringOtherApps: true)
       } label: {
-        Label("显示主界面", systemImage: "macwindow")
+        Text("显示主界面")
       }
 
       Divider()
