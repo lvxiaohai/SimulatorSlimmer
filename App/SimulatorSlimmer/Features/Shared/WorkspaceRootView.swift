@@ -255,6 +255,7 @@ private struct BatchOptimizationSheet: View {
     }
     .frame(minWidth: 820, idealWidth: 900, minHeight: 640, idealHeight: 720)
     .background(Color.instrumentBackground)
+    .suppressInitialFocus()
     .accessibilityIdentifier("batch-optimization.sheet")
   }
 }
@@ -283,6 +284,7 @@ private struct SettingsSheet: View {
     }
     .frame(width: 760, height: 620)
     .background(Color.instrumentBackground)
+    .suppressInitialFocus()
     .accessibilityIdentifier("settings.sheet")
   }
 }
@@ -407,6 +409,7 @@ private struct CreateSimulatorSheet: View {
     .onChange(of: selectedRuntimeID) { _, _ in
       reconcileDeviceType()
     }
+    .suppressInitialFocus()
     .accessibilityIdentifier("create-simulator.sheet")
   }
 
