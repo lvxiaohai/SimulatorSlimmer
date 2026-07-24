@@ -231,7 +231,7 @@ struct OptimizationView: View {
         Text("action.preview-changes")
       }
     }
-    .disabled(effectiveChanges.isEmpty || isBusy)
+    .disabled(isBusy)
     .minimumHitArea()
   }
 
@@ -246,7 +246,7 @@ struct OptimizationView: View {
       }
     }
     .buttonStyle(PressablePrimaryButtonStyle())
-    .disabled(effectiveChanges.isEmpty || isBusy || !snapshot.device.isAvailable)
+    .disabled(isBusy || !snapshot.device.isAvailable)
     .accessibilityHint("action.optimize-device.hint")
   }
 

@@ -124,10 +124,14 @@ struct OperationPreviewSheet: View {
       .frame(maxWidth: .infinity, alignment: .top)
     } else {
       VStack(alignment: .leading, spacing: 18) {
-        Text(preview.summary)
-          .font(.callout)
-          .foregroundStyle(.secondary)
-          .fixedSize(horizontal: false, vertical: true)
+        if isEmptyServiceMutation {
+          noChangesState
+        } else {
+          Text(preview.summary)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
 
         if let bytes = preview.selectedBytes {
           previewMetric(
@@ -323,15 +327,59 @@ struct OperationPreviewSheet: View {
         foreground: .white
       )
     )
+    .disabled(!canExecute)
   }
 
   private var allowsDefaultAction: Bool {
-    switch preview.operation.kind {
+    guard canExecute else { return false }
+    return switch preview.operation.kind {
     case .cleanStorage, .erase, .delete:
       false
     default:
       true
     }
+  }
+
+  private var canExecute: Bool {
+    switch preview.operation.kind {
+    case .optimize, .restore:
+      !preview.serviceChanges.isEmpty
+    default:
+      true
+    }
+  }
+
+  private var isEmptyServiceMutation: Bool {
+    switch preview.operation.kind {
+    case .optimize, .restore:
+      preview.serviceChanges.isEmpty
+    default:
+      false
+    }
+  }
+
+  private var noChangesState: some View {
+    HStack(spacing: 12) {
+      Image(systemName: "checkmark.seal.fill")
+        .font(.title3)
+        .foregroundStyle(.mint)
+        .accessibilityHidden(true)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(L10n.formatted("format.changes", 0))
+          .font(.headline.monospacedDigit())
+        Text("batch.preview.no-changes")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+      }
+      Spacer()
+    }
+    .padding(14)
+    .background(
+      Color.mint.opacity(0.08),
+      in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+    )
+    .accessibilityElement(children: .combine)
   }
 
   private var sheetHeader: some View {
