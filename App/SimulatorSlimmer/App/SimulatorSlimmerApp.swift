@@ -172,16 +172,19 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
 
   private func deviceMenuItem(_ item: MenuBarDeviceItem) -> NSMenuItem {
     let device = item.snapshot.device
+    let title = "\(device.name)  \(memoryText(item.snapshot.memory?.bytes))"
     let deviceItem = NSMenuItem(
-      title: "\(device.name)  \(memoryText(item.snapshot.memory?.bytes))",
+      title: title,
       action: nil,
       keyEquivalent: ""
     )
-    deviceItem.image = symbolImage(
+    if let image = symbolImage(
       device.deviceTypeIdentifier.localizedCaseInsensitiveContains("ipad")
         ? "ipad"
         : "iphone"
-    )
+    ) {
+      deviceItem.attributedTitle = menuTitle(title, leadingImage: image)
+    }
 
     let submenu = NSMenu()
     submenu.autoenablesItems = false
@@ -241,6 +244,16 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     image.isTemplate = true
     image.size = NSSize(width: 16, height: 16)
     return image
+  }
+
+  private func menuTitle(_ title: String, leadingImage image: NSImage) -> NSAttributedString {
+    let attachment = NSTextAttachment()
+    attachment.image = image
+    attachment.bounds = NSRect(x: 0, y: -3, width: 16, height: 16)
+
+    let attributedTitle = NSMutableAttributedString(attachment: attachment)
+    attributedTitle.append(NSAttributedString(string: "  \(title)"))
+    return attributedTitle
   }
 
   private func memoryText(_ bytes: Int64?) -> String {
