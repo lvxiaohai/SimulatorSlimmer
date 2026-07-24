@@ -42,6 +42,8 @@ final class AppModel {
   var notice: AppNotice?
   var toast: AppToast?
   var previewPresentation: PreviewPresentation?
+  var preparingPreviewDeviceID: SimulatorID?
+  var preparingPreviewConfirmsExecution = false
   var dangerPresentation: DangerPresentation?
   var operations: [SimulatorID: PresentedOperation] = [:]
   var activeOperationDeviceIDs: Set<SimulatorID> = []
@@ -59,6 +61,7 @@ final class AppModel {
   @ObservationIgnored private var applicationListRequestGeneration: UInt64 = 0
   @ObservationIgnored private var applicationFolderTask: Task<Void, Never>?
   @ObservationIgnored private var previewTask: Task<Void, Never>?
+  @ObservationIgnored private var previewRequestGeneration: UInt64 = 0
   @ObservationIgnored private var diagnosticsTask: Task<Void, Never>?
   @ObservationIgnored private var batchPreviewTask: Task<Void, Never>?
   @ObservationIgnored private var batchTask: Task<Void, Never>?
@@ -129,6 +132,7 @@ final class AppModel {
 
   var hasRunningOperation: Bool {
     isCreatingSimulator
+      || preparingPreviewDeviceID != nil
       || isPreparingBatchPreview
       || isExportingDiagnostics
       || batchRun?.isRunning == true
@@ -171,6 +175,7 @@ final class AppModel {
     overviewRequestGeneration &+= 1
     inspectionRequestGeneration &+= 1
     applicationListRequestGeneration &+= 1
+    previewRequestGeneration &+= 1
     overviewTask?.cancel()
     inspectionTask?.cancel()
     customServiceSnapshotTask?.cancel()
@@ -195,6 +200,8 @@ final class AppModel {
     applicationListState = .idle
     simulatorCreationOptions = nil
     previewPresentation = nil
+    preparingPreviewDeviceID = nil
+    preparingPreviewConfirmsExecution = false
     batchPreviewPresentation = nil
     workspaceModal = nil
     notice = nil
@@ -787,10 +794,18 @@ final class AppModel {
   }
 
   func isDeviceBusy(_ deviceID: SimulatorID) -> Bool {
-    if operations[deviceID]?.isRunning == true || activeOperationDeviceIDs.contains(deviceID) {
+    if operations[deviceID]?.isRunning == true
+      || activeOperationDeviceIDs.contains(deviceID)
+      || preparingPreviewDeviceID == deviceID
+    {
       return true
     }
     return isDeviceReservedByBatch(deviceID)
+  }
+
+  func isPreparingPreview(for deviceID: SimulatorID, confirmsExecution: Bool) -> Bool {
+    preparingPreviewDeviceID == deviceID
+      && preparingPreviewConfirmsExecution == confirmsExecution
   }
 
   func optimizationSupport(for deviceID: SimulatorID) -> OptimizationSupportStatus {
@@ -1312,12 +1327,26 @@ final class AppModel {
       snapshot?.device.id == operation.deviceID
       ? snapshot?.categories ?? []
       : []
+    previewRequestGeneration &+= 1
+    let requestGeneration = previewRequestGeneration
     previewTask?.cancel()
+    preparingPreviewDeviceID = operation.deviceID
+    preparingPreviewConfirmsExecution = confirmsExecution
     previewTask = Task { [weak self] in
       guard let self else { return }
+      defer {
+        if requestGeneration == previewRequestGeneration {
+          preparingPreviewDeviceID = nil
+          preparingPreviewConfirmsExecution = false
+          previewTask = nil
+        }
+      }
       do {
         let preview = try await workspace.preview(operation)
-        guard !Task.isCancelled else { return }
+        guard
+          !Task.isCancelled,
+          requestGeneration == previewRequestGeneration
+        else { return }
         previewPresentation = PreviewPresentation(
           preview: preview,
           confirmsExecution: confirmsExecution,
@@ -1326,6 +1355,7 @@ final class AppModel {
       } catch is CancellationError {
         return
       } catch {
+        guard requestGeneration == previewRequestGeneration else { return }
         notice = AppNotice(
           title: L10n.text("error.preview.title"),
           message: error.localizedDescription

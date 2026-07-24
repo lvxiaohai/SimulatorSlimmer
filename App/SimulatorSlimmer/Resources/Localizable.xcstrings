@@ -69,6 +69,7 @@
     "action.optimize-device" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"优化此模拟器"}}}},
     "action.optimize-device.hint" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"应用所选方案，必要时重启模拟器并验证结果。"}}}},
     "action.preview-changes" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"预览变更"}}}},
+    "action.preparing-preview" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"正在准备预览…"}}}},
     "action.refresh" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"刷新"}}}},
     "action.refresh.help" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"刷新设备列表和当前模拟器"}}}},
     "action.rescan" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"重新扫描"}}}},

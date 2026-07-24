@@ -229,8 +229,14 @@ struct OptimizationView: View {
   }
 
   private var previewAction: some View {
-    Button("action.preview-changes") {
+    Button {
       model.requestOptimizationPreview()
+    } label: {
+      if model.isPreparingPreview(for: snapshot.device.id, confirmsExecution: false) {
+        loadingLabel
+      } else {
+        Text("action.preview-changes")
+      }
     }
     .disabled(effectiveChanges.isEmpty || isBusy)
     .minimumHitArea()
@@ -240,7 +246,11 @@ struct OptimizationView: View {
     Button {
       model.runOptimization()
     } label: {
-      Label("action.optimize-device", systemImage: "gauge.with.dots.needle.50percent")
+      if model.isPreparingPreview(for: snapshot.device.id, confirmsExecution: true) {
+        loadingLabel
+      } else {
+        Label("action.optimize-device", systemImage: "gauge.with.dots.needle.50percent")
+      }
     }
     .buttonStyle(PressablePrimaryButtonStyle())
     .disabled(effectiveChanges.isEmpty || isBusy || !snapshot.device.isAvailable)
@@ -249,6 +259,16 @@ struct OptimizationView: View {
 
   private var isBusy: Bool {
     model.isDeviceBusy(snapshot.device.id)
+  }
+
+  private var loadingLabel: some View {
+    HStack(spacing: 7) {
+      ProgressView()
+        .controlSize(.small)
+        .accessibilityHidden(true)
+      Text("action.preparing-preview")
+    }
+    .accessibilityElement(children: .combine)
   }
 }
 
