@@ -633,9 +633,6 @@ private struct PreviewChangeRow: View {
           .font(.caption2.monospaced())
           .foregroundStyle(.secondary)
           .textSelection(.enabled)
-        Text(change.localizedStateTransition)
-          .font(.caption.weight(.semibold).monospacedDigit())
-          .foregroundStyle(change.transition == .disable ? .orange : .mint)
         if let impact = change.impact, !impact.isEmpty {
           Text(impact)
             .font(.caption)
@@ -643,7 +640,12 @@ private struct PreviewChangeRow: View {
             .fixedSize(horizontal: false, vertical: true)
         }
       }
-      Spacer()
+      .frame(maxWidth: .infinity, alignment: .leading)
+      Text(change.localizedStateTransition)
+        .font(.caption.weight(.semibold).monospacedDigit())
+        .foregroundStyle(change.transition == .disable ? .orange : .mint)
+        .frame(width: 104, alignment: .trailing)
+        .padding(.top, 2)
     }
     .padding(.vertical, 10)
     .frame(minHeight: 52)
