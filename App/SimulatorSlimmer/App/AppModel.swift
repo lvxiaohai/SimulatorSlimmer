@@ -1539,6 +1539,7 @@ final class MenuBarModel {
 
   @ObservationIgnored private var refreshTask: Task<Void, Never>?
   @ObservationIgnored private var folderTask: Task<Void, Never>?
+  @ObservationIgnored var didChange: (() -> Void)?
 
   init(workspace: any SimulatorWorkspaceClient) {
     self.workspace = workspace
@@ -1549,6 +1550,7 @@ final class MenuBarModel {
     devices = []
     isRefreshing = true
     refreshError = nil
+    didChange?()
 
     refreshTask = Task { [weak self] in
       guard let self else { return }
@@ -1598,16 +1600,19 @@ final class MenuBarModel {
         devices = resolvedDevices
         isRefreshing = false
         refreshTask = nil
+        didChange?()
       } catch is CancellationError {
         guard !Task.isCancelled else { return }
         isRefreshing = false
         refreshTask = nil
+        didChange?()
       } catch {
         guard !Task.isCancelled else { return }
         devices = []
         refreshError = error.localizedDescription
         isRefreshing = false
         refreshTask = nil
+        didChange?()
       }
     }
   }
@@ -1618,6 +1623,7 @@ final class MenuBarModel {
     isRefreshing = false
     devices = []
     refreshError = nil
+    didChange?()
   }
 
   func openDataContainer(
