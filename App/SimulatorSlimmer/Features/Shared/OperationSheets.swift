@@ -740,6 +740,7 @@ private struct PreviewChangeGroupList: View {
           .frame(minHeight: 40)
           .accessibilityIdentifier("preview-change-group.\(group.id)")
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
         .background(
           Color.instrumentRaised,
