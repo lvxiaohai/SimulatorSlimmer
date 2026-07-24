@@ -5,6 +5,50 @@ import Testing
 
 @Suite("工作区事务行为")
 struct SimulatorWorkspaceBehaviorTests {
+  @Test("菜单栏快照只返回已启动设备并采集内存")
+  func menuBarSnapshotOnlyIncludesBootedDevices() async throws {
+    let booted = makeWorkspaceDevice(
+      id: "01010101-0202-4303-8404-050505050505",
+      state: .booted
+    )
+    let shutdown = makeWorkspaceDevice(
+      id: "11111111-1212-4313-8414-151515151515",
+      state: .shutdown
+    )
+    let workspace = makeWorkspace(
+      simulator: BatchWorkspaceSimulatorSpy(devices: [shutdown, booted]),
+      receiptStore: WorkspaceReceiptStoreSpy(),
+      services: []
+    )
+
+    let snapshot = try await workspace.menuBarSnapshot()
+    let memory = try #require(snapshot.devices.first?.memory)
+
+    #expect(snapshot.devices.map(\.device.id) == [booted.id])
+    #expect(memory.bytes == Int64(128 * 1_024 * 1_024))
+    #expect(snapshot.devices.first?.memoryError == nil)
+  }
+
+  @Test("菜单栏内存采集失败时仍保留已启动设备")
+  func menuBarSnapshotKeepsDeviceWhenMemoryFails() async throws {
+    let device = makeWorkspaceDevice(
+      id: "21212121-2222-4323-8424-252525252525",
+      state: .booted
+    )
+    let workspace = makeWorkspace(
+      simulator: WorkspaceSimulatorSpy(device: device),
+      receiptStore: WorkspaceReceiptStoreSpy(),
+      services: [],
+      memoryInspector: WorkspaceFailingMemoryInspector()
+    )
+
+    let snapshot = try await workspace.menuBarSnapshot()
+
+    #expect(snapshot.devices.map(\.device.id) == [device.id])
+    #expect(snapshot.devices.first?.memory == nil)
+    #expect(snapshot.devices.first?.memoryError == "模拟失败")
+  }
+
   @Test("显示模拟器直接执行且不创建操作回执")
   func showingSimulatorSkipsOperationTransaction() async throws {
     let simulator = WorkspaceSimulatorSpy(
@@ -1929,6 +1973,12 @@ private actor WorkspaceReceiptStoreSpy: ReceiptStoring {
 private struct WorkspaceMemoryInspectorStub: MemoryInspecting {
   func snapshot(for deviceID: SimulatorID) async throws -> MemorySnapshot {
     MemorySnapshot(bytes: 128 * 1_024 * 1_024, processCount: 4)
+  }
+}
+
+private struct WorkspaceFailingMemoryInspector: MemoryInspecting {
+  func snapshot(for deviceID: SimulatorID) async throws -> MemorySnapshot {
+    throw WorkspaceTestError.simulatedFailure
   }
 }
 

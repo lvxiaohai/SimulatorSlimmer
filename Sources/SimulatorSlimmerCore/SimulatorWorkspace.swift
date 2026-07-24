@@ -80,6 +80,39 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     )
   }
 
+  public func menuBarSnapshot() async throws -> MenuBarSnapshot {
+    try Task.checkCancellation()
+    let inventory = try await simulator.inventory()
+    let devices = inventory.devices
+      .filter { $0.isAvailable && $0.state == .booted }
+      .sorted {
+        $0.name.localizedStandardCompare($1.name) == .orderedAscending
+      }
+
+    var snapshots: [MenuBarDeviceSnapshot] = []
+    snapshots.reserveCapacity(devices.count)
+    for device in devices {
+      try Task.checkCancellation()
+      do {
+        let memory = try await memoryInspector.snapshot(for: device.id)
+        snapshots.append(
+          MenuBarDeviceSnapshot(device: device, memory: memory)
+        )
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        snapshots.append(
+          MenuBarDeviceSnapshot(
+            device: device,
+            memory: nil,
+            memoryError: error.localizedDescription
+          )
+        )
+      }
+    }
+    return MenuBarSnapshot(devices: snapshots)
+  }
+
   public func simulatorCreationOptions() async throws -> SimulatorCreationOptions {
     async let inventory = simulator.inventory()
     async let deviceTypes = simulator.availableDeviceTypes()

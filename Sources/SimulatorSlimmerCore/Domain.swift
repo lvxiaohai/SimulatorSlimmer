@@ -211,6 +211,37 @@ public struct MemorySnapshot: Codable, Hashable, Sendable {
   }
 }
 
+public struct MenuBarDeviceSnapshot: Identifiable, Sendable {
+  public let device: SimulatorDevice
+  public let memory: MemorySnapshot?
+  public let memoryError: String?
+
+  public init(
+    device: SimulatorDevice,
+    memory: MemorySnapshot?,
+    memoryError: String? = nil
+  ) {
+    self.device = device
+    self.memory = memory
+    self.memoryError = memoryError
+  }
+
+  public var id: SimulatorID { device.id }
+}
+
+public struct MenuBarSnapshot: Sendable {
+  public let devices: [MenuBarDeviceSnapshot]
+  public let collectedAt: Date
+
+  public init(
+    devices: [MenuBarDeviceSnapshot],
+    collectedAt: Date = Date()
+  ) {
+    self.devices = devices
+    self.collectedAt = collectedAt
+  }
+}
+
 public struct ApplicationMemorySnapshot: Codable, Hashable, Sendable {
   public let bytes: Int64
   public let processCount: Int
