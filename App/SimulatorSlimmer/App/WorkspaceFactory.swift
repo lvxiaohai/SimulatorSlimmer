@@ -105,7 +105,7 @@ enum WorkspaceFactory {
               categoryID: "intelligence",
               risk: .low,
               transition: .disable,
-              impact: "暂停系统个性化建议与预测更新。",
+              impact: "停用系统个性化建议与预测更新。",
               currentDisabled: false,
               targetDisabled: true
             ),
@@ -530,7 +530,7 @@ enum WorkspaceFactory {
         id: "suggestions",
         label: "com.apple.suggestionsd",
         name: "系统建议",
-        impact: "暂停系统个性化建议与预测更新。",
+        impact: "停用系统个性化建议与预测更新。",
         category: "intelligence",
         risk: .low,
         profiles: [.recommended, .extreme]
@@ -539,7 +539,7 @@ enum WorkspaceFactory {
         id: "knowledge",
         label: "com.apple.knowledge-agent",
         name: "知识索引",
-        impact: "暂停非必要的设备知识索引。",
+        impact: "停用非必要的设备知识索引。",
         category: "intelligence",
         risk: .moderate,
         profiles: [.recommended, .extreme]
@@ -548,7 +548,7 @@ enum WorkspaceFactory {
         id: "cloud",
         label: "com.apple.cloudd",
         name: "云同步",
-        impact: "暂停模拟器中的云端后台同步。",
+        impact: "停用模拟器中的云端后台同步。",
         category: "sync",
         risk: .moderate,
         profiles: [.recommended, .extreme]
@@ -557,7 +557,7 @@ enum WorkspaceFactory {
         id: "media-analysis",
         label: "com.apple.mediaanalysisd",
         name: "媒体分析",
-        impact: "暂停照片与媒体的后台分析。",
+        impact: "停用照片与媒体的后台分析。",
         category: "media",
         risk: .low,
         profiles: [.extreme]
@@ -566,7 +566,7 @@ enum WorkspaceFactory {
         id: "photo-library",
         label: "com.apple.photoanalysisd",
         name: "照片资料库分析",
-        impact: "暂停高开销的照片识别任务。",
+        impact: "停用高开销的照片识别任务。",
         category: "media",
         risk: .high,
         profiles: [.extreme]

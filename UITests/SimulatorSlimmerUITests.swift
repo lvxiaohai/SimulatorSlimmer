@@ -154,7 +154,7 @@ final class SimulatorSlimmerUITests: XCTestCase {
     XCTAssertTrue(customProfile.waitForExistence(timeout: 3))
     customProfile.click()
 
-    XCTAssertTrue(app.staticTexts["选择要暂停的服务"].waitForExistence(timeout: 3))
+    XCTAssertTrue(app.staticTexts["选择要停用的服务"].waitForExistence(timeout: 3))
     XCTAssertTrue(element(identifier: "custom-services.select-all", in: app).exists)
     XCTAssertTrue(element(identifier: "custom-services.clear", in: app).exists)
     let firstGroup = app.disclosureTriangles.firstMatch
