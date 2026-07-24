@@ -130,6 +130,7 @@ final class AppModel {
   var hasRunningOperation: Bool {
     isCreatingSimulator
       || isPreparingBatchPreview
+      || isExportingDiagnostics
       || batchRun?.isRunning == true
       || !activeOperationDeviceIDs.isEmpty
       || operations.values.contains(where: \.isRunning)
@@ -162,6 +163,51 @@ final class AppModel {
   func load() {
     guard overview == nil, !isLoadingOverview else { return }
     refreshOverview()
+  }
+
+  func releaseMainWindowResourcesIfIdle() {
+    guard !hasRunningOperation else { return }
+
+    overviewRequestGeneration &+= 1
+    inspectionRequestGeneration &+= 1
+    applicationListRequestGeneration &+= 1
+    overviewTask?.cancel()
+    inspectionTask?.cancel()
+    customServiceSnapshotTask?.cancel()
+    applicationListTask?.cancel()
+    applicationFolderTask?.cancel()
+    simulatorCreationOptionsTask?.cancel()
+    previewTask?.cancel()
+    batchPreviewTask?.cancel()
+
+    overviewTask = nil
+    inspectionTask = nil
+    customServiceSnapshotTask = nil
+    applicationListTask = nil
+    applicationFolderTask = nil
+    simulatorCreationOptionsTask = nil
+    previewTask = nil
+    batchPreviewTask = nil
+
+    overview = nil
+    snapshot = nil
+    customServiceSnapshot = nil
+    applicationListState = .idle
+    simulatorCreationOptions = nil
+    previewPresentation = nil
+    batchPreviewPresentation = nil
+    workspaceModal = nil
+    notice = nil
+    toast = nil
+    loadError = nil
+    snapshotLoadError = nil
+    simulatorCreationError = nil
+    isLoadingOverview = false
+    isLoadingSnapshot = false
+    isLoadingCustomServiceSnapshot = false
+    isLoadingSimulatorCreationOptions = false
+    isPreparingBatchPreview = false
+    openingApplicationBundleID = nil
   }
 
   func refreshOverview() {
@@ -1463,5 +1509,147 @@ final class AppModel {
     } else {
       selectedStorageCategoryIDs.removeAll()
     }
+  }
+}
+
+struct MenuBarApplicationItem: Identifiable {
+  let application: SimulatorApplication
+  let memory: ApplicationMemorySnapshot?
+  let icon: NSImage?
+
+  var id: String { application.bundleIdentifier }
+}
+
+struct MenuBarDeviceItem: Identifiable {
+  let snapshot: MenuBarDeviceSnapshot
+  let applications: [MenuBarApplicationItem]
+  let applicationError: String?
+
+  var id: SimulatorID { snapshot.device.id }
+}
+
+@MainActor
+@Observable
+final class MenuBarModel {
+  private let workspace: any SimulatorWorkspaceClient
+
+  var devices: [MenuBarDeviceItem] = []
+  var isRefreshing = false
+  var refreshError: String?
+
+  @ObservationIgnored private var refreshTask: Task<Void, Never>?
+  @ObservationIgnored private var folderTask: Task<Void, Never>?
+
+  init(workspace: any SimulatorWorkspaceClient) {
+    self.workspace = workspace
+  }
+
+  func refresh() {
+    refreshTask?.cancel()
+    isRefreshing = true
+    refreshError = nil
+
+    refreshTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let snapshot = try await workspace.menuBarSnapshot()
+        var resolvedDevices: [MenuBarDeviceItem] = []
+        resolvedDevices.reserveCapacity(snapshot.devices.count)
+
+        for deviceSnapshot in snapshot.devices {
+          try Task.checkCancellation()
+          do {
+            let applicationSnapshot = try await workspace.applications(
+              for: deviceSnapshot.device.id
+            )
+            let applications = applicationSnapshot.applications
+              .filter { $0.kind == .user }
+              .map { application in
+                MenuBarApplicationItem(
+                  application: application,
+                  memory: applicationSnapshot.memoryByBundleIdentifier[
+                    application.bundleIdentifier
+                  ],
+                  icon: Self.applicationIcon(for: application)
+                )
+              }
+            resolvedDevices.append(
+              MenuBarDeviceItem(
+                snapshot: deviceSnapshot,
+                applications: applications,
+                applicationError: applicationSnapshot.memoryError
+              )
+            )
+          } catch is CancellationError {
+            throw CancellationError()
+          } catch {
+            resolvedDevices.append(
+              MenuBarDeviceItem(
+                snapshot: deviceSnapshot,
+                applications: [],
+                applicationError: error.localizedDescription
+              )
+            )
+          }
+        }
+
+        guard !Task.isCancelled else { return }
+        devices = resolvedDevices
+        isRefreshing = false
+        refreshTask = nil
+      } catch is CancellationError {
+        guard !Task.isCancelled else { return }
+        isRefreshing = false
+        refreshTask = nil
+      } catch {
+        guard !Task.isCancelled else { return }
+        devices = []
+        refreshError = error.localizedDescription
+        isRefreshing = false
+        refreshTask = nil
+      }
+    }
+  }
+
+  func cancelRefresh() {
+    refreshTask?.cancel()
+    refreshTask = nil
+    isRefreshing = false
+    devices = []
+    refreshError = nil
+  }
+
+  func openDataContainer(
+    for application: SimulatorApplication,
+    deviceID: SimulatorID
+  ) {
+    folderTask?.cancel()
+    folderTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let folderURL = try await workspace.dataContainer(
+          for: deviceID,
+          bundleIdentifier: application.bundleIdentifier
+        )
+        guard !Task.isCancelled else { return }
+        guard let folderURL else {
+          NSSound.beep()
+          return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+      } catch is CancellationError {
+        return
+      } catch {
+        NSSound.beep()
+      }
+    }
+  }
+
+  private static func applicationIcon(for application: SimulatorApplication) -> NSImage? {
+    guard let bundleURL = application.bundleURL else { return nil }
+    let source = NSWorkspace.shared.icon(forFile: bundleURL.path)
+    guard source.isValid, let icon = source.copy() as? NSImage else { return nil }
+    icon.size = NSSize(width: 18, height: 18)
+    return icon
   }
 }

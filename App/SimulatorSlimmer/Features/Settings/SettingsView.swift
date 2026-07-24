@@ -7,10 +7,12 @@ struct SettingsView: View {
   @AppStorage("automaticRefreshInterval") private var automaticRefreshInterval = 30.0
   @AppStorage("showUnavailableDevices") private var showUnavailableDevices = false
   @AppStorage("defaultProfile") private var defaultProfile = OptimizationProfile.balanced.rawValue
+  @AppStorage("menuBarEnabled") private var menuBarEnabled = true
 
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
+        menuBarSettings
         generalSettings
       }
       .frame(maxWidth: 620)
@@ -21,6 +23,22 @@ struct SettingsView: View {
     .background(Color.instrumentBackground)
     .navigationTitle("sidebar.settings")
     .accessibilityIdentifier("settings.page")
+  }
+
+  private var menuBarSettings: some View {
+    InstrumentCard {
+      VStack(alignment: .leading, spacing: 0) {
+        InstrumentSectionLabel(title: "settings.menu-bar")
+          .padding(.bottom, 10)
+
+        Divider()
+        settingToggle(
+          title: L10n.text("settings.menu-bar.enabled"),
+          summary: L10n.text("settings.menu-bar.enabled.summary"),
+          isOn: $menuBarEnabled
+        )
+      }
+    }
   }
 
   private var generalSettings: some View {

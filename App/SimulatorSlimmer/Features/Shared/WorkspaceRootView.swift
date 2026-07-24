@@ -57,6 +57,9 @@ struct WorkspaceRootView: View {
       model.load()
       positionWindowOnBuiltInDisplayIfRequested()
     }
+    .onDisappear {
+      model.releaseMainWindowResourcesIfIdle()
+    }
     .task(id: refreshConfiguration) {
       guard refreshConfiguration.isEnabled else { return }
       while !Task.isCancelled {
