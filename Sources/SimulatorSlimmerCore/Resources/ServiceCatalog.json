@@ -1,138 +1,113 @@
 {
   "schemaVersion": 1,
-  "supportedRuntimeVersions": ["26.3.1", "26.5"],
+  "supportedRuntimeVersions": [
+    "26.3.1",
+    "26.5"
+  ],
   "categories": [
     {
-      "id": "system-core",
-      "name": "系统关键路径",
-      "summary": "维持主界面、输入响应与系统分享能力的基础服务。",
-      "symbol": "lock.shield"
-    },
-    {
-      "id": "visual-surfaces",
-      "name": "动态界面",
+      "id": "widgets",
+      "name": "小组件、壁纸与实时活动",
       "summary": "负责墙纸、小组件时间线和实时活动的后台更新。",
       "symbol": "rectangle.3.group"
     },
     {
-      "id": "intelligence",
-      "name": "语音与智能计算",
+      "id": "siri",
+      "name": "Siri 与智能计算",
       "summary": "提供语音交互、内容建议以及设备端模型调度。",
       "symbol": "waveform.and.mic"
     },
     {
-      "id": "discovery",
-      "name": "本机检索",
+      "id": "search",
+      "name": "本机搜索",
       "summary": "构建并查询设备内的 Spotlight 与系统搜索索引。",
       "symbol": "magnifyingglass"
     },
     {
-      "id": "cloud-account",
-      "name": "账户与云同步",
+      "id": "icloud",
+      "name": "Apple 账户与 iCloud",
       "summary": "连接 Apple 账户、iCloud 数据和受信任设备状态。",
       "symbol": "icloud"
     },
     {
-      "id": "delivery-commerce",
-      "name": "商店与消息投递",
-      "summary": "支持 App Store、StoreKit、远程通知和媒体商店。",
+      "id": "store",
+      "name": "App Store、推送与媒体",
+      "summary": "支持 App Store、StoreKit、远程通知和媒体服务。",
       "symbol": "shippingbox"
     },
     {
-      "id": "personal-data",
-      "name": "个人数据",
+      "id": "pim",
+      "name": "邮件、日历与联系人",
       "summary": "维护邮件、日历、提醒事项和联系人数据访问。",
       "symbol": "person.crop.circle"
     },
     {
-      "id": "web-services",
-      "name": "网页后台能力",
+      "id": "web",
+      "name": "Safari 与网页服务",
       "summary": "处理 Safari 同步、网页推送、隐私检查与通用链接。",
       "symbol": "safari"
     },
     {
-      "id": "media-library",
+      "id": "family",
+      "name": "家庭共享与屏幕时间",
+      "summary": "维护家庭共享、家长控制、屏幕时间和使用情况统计。",
+      "symbol": "person.2.badge.gearshape"
+    },
+    {
+      "id": "health",
+      "name": "健康、智能家居与健身",
+      "summary": "承载 HealthKit、HomeKit 和健身数据相关后台任务。",
+      "symbol": "heart.text.square"
+    },
+    {
+      "id": "photos",
       "name": "照片与媒体资料库",
       "summary": "整理照片资源并在后台执行人物与内容分析。",
       "symbol": "photo.on.rectangle.angled"
     },
     {
-      "id": "wellbeing-home",
-      "name": "健康与家庭",
-      "summary": "承载 HealthKit、家庭设备和健身数据相关后台任务。",
-      "symbol": "heart.text.square"
-    },
-    {
-      "id": "content-feeds",
-      "name": "内容与资讯",
-      "summary": "更新新闻、天气、地图提示和游戏存档等内容。",
+      "id": "apps",
+      "name": "新闻、天气、地图与游戏",
+      "summary": "更新新闻、天气、地图和游戏相关系统内容。",
       "symbol": "newspaper"
     },
     {
-      "id": "communication",
-      "name": "通信与设备连接",
-      "summary": "维持信息、通话、接力以及附近设备之间的连接。",
+      "id": "messaging",
+      "name": "信息与 FaceTime",
+      "summary": "维护 iMessage、FaceTime、系统通话和身份服务。",
+      "symbol": "message"
+    },
+    {
+      "id": "connectivity",
+      "name": "共享与设备连接",
+      "summary": "支持 AirDrop、接力、CarPlay、Apple Watch 和查找。",
       "symbol": "antenna.radiowaves.left.and.right"
     },
     {
-      "id": "diagnostics",
-      "name": "诊断与运营",
-      "summary": "收集诊断、反馈、广告度量和实验配置。",
+      "id": "telemetry",
+      "name": "广告、诊断与遥测",
+      "summary": "处理设备校验、诊断、反馈、广告度量和实验配置。",
       "symbol": "stethoscope"
     },
     {
-      "id": "system-extras",
-      "name": "其他系统扩展",
-      "summary": "涵盖钱包、企业配置、资产下载和辅助连接服务。",
+      "id": "other",
+      "name": "其他后台服务",
+      "summary": "涵盖钱包、企业配置、资源下载和其他系统后台能力。",
       "symbol": "gearshape.2"
     }
   ],
   "services": [
     {
-      "id": "core.share-sheet",
-      "label": "com.apple.sharingd",
-      "name": "系统分享协调",
-      "impact": "必须保持开启；关闭后系统分享面板及跨应用分享可能无法使用。",
-      "categoryID": "system-core",
-      "risk": "protected",
-      "profiles": [],
-      "alwaysEnabled": true,
-      "minimumRuntimeMajor": 26,
-      "maximumRuntimeMajor": 26
-    },
-    {
-      "id": "core.system-shell",
-      "label": "com.apple.SpringBoard",
-      "name": "模拟器系统界面",
-      "impact": "必须保持开启；它负责主屏幕、应用切换和主要系统交互。",
-      "categoryID": "system-core",
-      "risk": "protected",
-      "profiles": [],
-      "alwaysEnabled": true,
-      "minimumRuntimeMajor": 26,
-      "maximumRuntimeMajor": 26
-    },
-    {
-      "id": "core.input-display",
-      "label": "com.apple.backboardd",
-      "name": "输入与显示协调",
-      "impact": "必须保持开启；它参与触控输入、窗口和显示事件分发。",
-      "categoryID": "system-core",
-      "risk": "protected",
-      "profiles": [],
-      "alwaysEnabled": true,
-      "minimumRuntimeMajor": 26,
-      "maximumRuntimeMajor": 26
-    },
-
-    {
       "id": "visual.poster-board",
       "label": "com.apple.PosterBoard",
       "name": "墙纸与锁屏画面",
       "impact": "停用后锁屏墙纸、海报样式和相关预览不再刷新。",
-      "categoryID": "visual-surfaces",
+      "categoryID": "widgets",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -142,9 +117,12 @@
       "label": "com.apple.chronod",
       "name": "小组件时间线",
       "impact": "停用后桌面和锁屏小组件可能只显示缓存内容。",
-      "categoryID": "visual-surfaces",
+      "categoryID": "widgets",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -154,22 +132,42 @@
       "label": "com.apple.liveactivitiesd",
       "name": "实时活动更新",
       "impact": "停用后实时活动不会继续接收或刷新后台状态。",
-      "categoryID": "visual-surfaces",
+      "categoryID": "widgets",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
     {
       "id": "intelligence.assistant",
       "label": "com.apple.assistantd",
       "name": "语音助手核心",
       "impact": "停用后 Siri 请求和部分系统语音入口不可用。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.assistant.cdmd",
+      "label": "com.apple.assistant_cdmd",
+      "name": "Siri 指令路由",
+      "impact": "停用后 Siri 无法正常路由语音指令与 App Intent。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -179,9 +177,12 @@
       "label": "com.apple.assistant_service",
       "name": "语音助手任务服务",
       "impact": "停用后助手任务处理和系统内语音操作可能失败。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -191,9 +192,12 @@
       "label": "com.apple.siriactionsd",
       "name": "快捷操作推断",
       "impact": "停用后 Siri 与系统建议中的可执行操作会减少。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -203,9 +207,12 @@
       "label": "com.apple.siriinferenced",
       "name": "Siri 本机推断",
       "impact": "停用后基于本机使用习惯生成的 Siri 建议不可用。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -215,9 +222,12 @@
       "label": "com.apple.siriknowledged",
       "name": "Siri 知识处理",
       "impact": "停用后助手的本机知识整理和上下文结果会受限。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -227,9 +237,42 @@
       "label": "com.apple.sirittsd",
       "name": "Siri 语音合成",
       "impact": "停用后 Siri 和依赖该服务的系统语音反馈可能没有声音。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.siri.context.service",
+      "label": "com.apple.siri.context.service",
+      "name": "Siri 设备上下文",
+      "impact": "停用后 Siri 无法构建设备上下文，相关请求可能失真。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.siri.acousticsignature",
+      "label": "com.apple.siri.acousticsignature",
+      "name": "语音声学特征",
+      "impact": "停用后依赖声学特征的语音能力不可用。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -239,9 +282,12 @@
       "label": "com.apple.corespeechd",
       "name": "语音识别基础服务",
       "impact": "停用后系统级语音识别和唤醒相关测试不可用。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -251,9 +297,42 @@
       "label": "com.apple.voiced",
       "name": "系统语音资源",
       "impact": "停用后系统语音包的管理、下载和部分朗读能力受限。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.voicebankingd",
+      "label": "com.apple.voicebankingd",
+      "name": "个人声音",
+      "impact": "停用后个人声音和声音存储相关能力不可用。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.speechmodeltrainingd",
+      "label": "com.apple.speechmodeltrainingd",
+      "name": "语音模型训练",
+      "impact": "停用后设备端语音识别模型不会继续适配。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -263,9 +342,117 @@
       "label": "com.apple.intelligenceplatformd",
       "name": "智能能力调度",
       "impact": "停用后系统智能能力及其跨进程任务不会在后台运行。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.intelligencecontextd",
+      "label": "com.apple.intelligencecontextd",
+      "name": "智能功能上下文",
+      "impact": "停用后系统智能功能无法收集本地上下文。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.intelligenceflowd",
+      "label": "com.apple.intelligenceflowd",
+      "name": "智能工作流",
+      "impact": "停用后 Apple Intelligence 工作流无法正常编排。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.intelligencetasksd",
+      "label": "com.apple.intelligencetasksd",
+      "name": "智能后台任务",
+      "impact": "停用后 Apple Intelligence 后台任务不会执行。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.generativeexperiencesd",
+      "label": "com.apple.generativeexperiencesd",
+      "name": "生成式智能体验",
+      "impact": "停用后生成式智能相关系统体验不可用。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.knowledgeconstructiond",
+      "label": "com.apple.knowledgeconstructiond",
+      "name": "设备知识构建",
+      "impact": "停用后系统建议依赖的设备知识不会继续构建。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.naturallanguaged",
+      "label": "com.apple.naturallanguaged",
+      "name": "自然语言分析",
+      "impact": "停用后系统自然语言分析能力不可用。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.textunderstandingd",
+      "label": "com.apple.textunderstandingd",
+      "name": "文本理解",
+      "impact": "停用后系统无法继续提取文本语义和实体。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -275,9 +462,12 @@
       "label": "com.apple.modelcatalogd",
       "name": "模型目录维护",
       "impact": "停用后系统不会在后台检查和整理设备端模型目录。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -287,9 +477,12 @@
       "label": "com.apple.modelmanagerd",
       "name": "模型资源管理",
       "impact": "停用后系统不会主动准备或更新本机模型资源。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -299,9 +492,27 @@
       "label": "com.apple.mlhostd",
       "name": "后台机器学习宿主",
       "impact": "停用后系统发起的后台机器学习扩展不会执行。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.mlruntimed",
+      "label": "com.apple.mlruntimed",
+      "name": "机器学习运行时",
+      "impact": "停用后设备端机器学习模型无法执行。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -311,9 +522,12 @@
       "label": "com.apple.suggestd",
       "name": "系统建议整理",
       "impact": "停用后基于使用记录生成的系统建议与候选内容会减少。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -323,9 +537,27 @@
       "label": "com.apple.parsecd",
       "name": "联机建议服务",
       "impact": "停用后搜索和系统入口中的联机推荐内容会减少。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.parsec.fbf",
+      "label": "com.apple.parsec-fbf",
+      "name": "搜索建议反馈",
+      "impact": "停用后 Siri 与 Spotlight 建议反馈不会继续收集。",
+      "categoryID": "siri",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -335,22 +567,27 @@
       "label": "com.apple.proactiveeventtrackerd",
       "name": "主动建议事件记录",
       "impact": "停用后用于生成主动建议的后台事件不再持续汇总。",
-      "categoryID": "intelligence",
+      "categoryID": "siri",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
     {
       "id": "discovery.search",
       "label": "com.apple.searchd",
       "name": "系统搜索查询",
       "impact": "停用后 Spotlight 和部分系统设置页面无法返回搜索结果。",
-      "categoryID": "discovery",
+      "categoryID": "search",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -360,9 +597,12 @@
       "label": "com.apple.searchtoold",
       "name": "搜索辅助进程",
       "impact": "停用后系统搜索的辅助索引和查询任务不会运行。",
-      "categoryID": "discovery",
+      "categoryID": "search",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -372,9 +612,27 @@
       "label": "com.apple.spotlightknowledged",
       "name": "Spotlight 知识索引",
       "impact": "停用后应用内容和系统实体不会继续进入 Spotlight 索引。",
-      "categoryID": "discovery",
+      "categoryID": "search",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.spotlightknowledged.updater",
+      "label": "com.apple.spotlightknowledged.updater",
+      "name": "Spotlight 知识更新",
+      "impact": "停用后 Spotlight 的知识数据不会继续刷新。",
+      "categoryID": "search",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -384,22 +642,57 @@
       "label": "com.apple.corespotlightservice",
       "name": "Core Spotlight 服务",
       "impact": "停用后依赖 Core Spotlight 的应用内索引测试可能失真。",
-      "categoryID": "discovery",
+      "categoryID": "search",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
     {
       "id": "cloud.apple-account",
       "label": "com.apple.appleaccountd",
       "name": "Apple 账户状态",
       "impact": "停用后系统设置和应用无法可靠读取 Apple 账户状态。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.appleaccounttransparencyd",
+      "label": "com.apple.appleaccounttransparencyd",
+      "name": "Apple 账户安全记录",
+      "impact": "停用后 Apple 账户安全记录检查不可用。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.appleidsetupd",
+      "label": "com.apple.appleidsetupd",
+      "name": "Apple 账户设置",
+      "impact": "停用后 Apple 账户设置流程可能无法完成。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -409,9 +702,12 @@
       "label": "com.apple.akd",
       "name": "Apple 账户认证",
       "impact": "停用后 Apple 服务登录与账户鉴权流程可能失败。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -421,9 +717,42 @@
       "label": "com.apple.amsaccountsd",
       "name": "媒体服务账户",
       "impact": "停用后媒体商店和部分 App Store 账户流程不可用。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.amsengagementd",
+      "label": "com.apple.amsengagementd",
+      "name": "媒体服务互动消息",
+      "impact": "停用后 App Store 与媒体服务的互动消息不可用。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.amsondevicestoraged",
+      "label": "com.apple.amsondevicestoraged",
+      "name": "媒体服务本地存储",
+      "impact": "停用后 Apple 媒体服务无法维护设备端数据。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -433,9 +762,12 @@
       "label": "com.apple.cloudd",
       "name": "CloudKit 同步",
       "impact": "停用后使用 CloudKit 的应用无法完成正常云端同步测试。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -445,9 +777,42 @@
       "label": "com.apple.cloudphotod",
       "name": "iCloud 照片同步",
       "impact": "停用后照片资料库不会与 iCloud 交换变更。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.ckdiscretionaryd",
+      "label": "com.apple.ckdiscretionaryd",
+      "name": "CloudKit 后台传输",
+      "impact": "停用后非紧急 CloudKit 传输不会调度。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.cloudsettingssyncagent",
+      "label": "com.apple.cloudsettingssyncagent",
+      "name": "iCloud 设置同步",
+      "impact": "停用后支持的系统设置不会通过 iCloud 同步。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -457,9 +822,27 @@
       "label": "com.apple.bird",
       "name": "iCloud Drive 同步",
       "impact": "停用后文件提供器和 iCloud Drive 数据不会正常同步。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.syncdefaultsd",
+      "label": "com.apple.syncdefaultsd",
+      "name": "偏好设置同步",
+      "impact": "停用后支持的偏好设置不会在设备间同步。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -469,9 +852,12 @@
       "label": "com.apple.cdpd",
       "name": "受保护云数据",
       "impact": "停用后与受保护云数据有关的账户恢复和同步会中断。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -481,9 +867,12 @@
       "label": "com.apple.sosd",
       "name": "钥匙串信任同步",
       "impact": "停用后 iCloud 钥匙串与受信任设备关系无法正常测试。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -493,9 +882,12 @@
       "label": "com.apple.SecureBackupDaemon",
       "name": "安全备份",
       "impact": "停用后受保护数据的备份和恢复相关流程不可用。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -505,22 +897,86 @@
       "label": "com.apple.TrustedPeersHelper",
       "name": "受信任设备关系",
       "impact": "停用后多设备信任关系和相关密钥同步测试会失败。",
-      "categoryID": "cloud-account",
+      "categoryID": "icloud",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
+    {
+      "id": "imported.com.apple.protectedcloudstorage.protectedcloudkeysyncing",
+      "label": "com.apple.protectedcloudstorage.protectedcloudkeysyncing",
+      "name": "云端保护密钥同步",
+      "impact": "停用后受保护的云端加密密钥无法同步。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.icloudmailagent",
+      "label": "com.apple.icloudmailagent",
+      "name": "iCloud 邮件后台",
+      "impact": "停用后 iCloud 邮件后台任务不可用。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.icloudsubscriptionoptimizerd",
+      "label": "com.apple.icloudsubscriptionoptimizerd",
+      "name": "iCloud 存储建议",
+      "impact": "停用后 iCloud 存储订阅建议不会生成。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.communicationtrustd",
+      "label": "com.apple.communicationtrustd",
+      "name": "通信信任与安全",
+      "impact": "停用后系统通信信任和安全状态无法维护。",
+      "categoryID": "icloud",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
     {
       "id": "delivery.app-store",
       "label": "com.apple.appstored",
       "name": "App Store 安装服务",
       "impact": "停用后商店下载、更新和部分安装流程无法工作。",
-      "categoryID": "delivery-commerce",
+      "categoryID": "store",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -530,9 +986,11 @@
       "label": "com.apple.appstorecomponentsd",
       "name": "商店组件服务",
       "impact": "停用后系统中的 App Store 组件与推荐界面可能无法加载。",
-      "categoryID": "delivery-commerce",
+      "categoryID": "store",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -542,21 +1000,11 @@
       "label": "com.apple.apsd",
       "name": "Apple 推送连接",
       "impact": "停用后远程通知及依赖 APNs 的测试无法进行。",
-      "categoryID": "delivery-commerce",
+      "categoryID": "store",
       "risk": "high",
-      "profiles": ["efficient"],
-      "alwaysEnabled": false,
-      "minimumRuntimeMajor": 26,
-      "maximumRuntimeMajor": 26
-    },
-    {
-      "id": "delivery.store-kit",
-      "label": "com.apple.storekitd",
-      "name": "StoreKit 交易服务",
-      "impact": "停用后内购、订阅和 StoreKit 测试会话不可用。",
-      "categoryID": "delivery-commerce",
-      "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -566,9 +1014,67 @@
       "label": "com.apple.itunescloudd",
       "name": "媒体云资料",
       "impact": "停用后媒体资料与云端购买记录不会同步。",
-      "categoryID": "delivery-commerce",
+      "categoryID": "store",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.itunesstored",
+      "label": "com.apple.itunesstored",
+      "name": "媒体商店交易",
+      "impact": "停用后媒体商店账户和购买流程不可用。",
+      "categoryID": "store",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "delivery.store-kit",
+      "label": "com.apple.storekitd",
+      "name": "StoreKit 交易服务",
+      "impact": "停用后内购、订阅和 StoreKit 测试会话不可用。",
+      "categoryID": "store",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.videosubscriptionsd",
+      "label": "com.apple.videosubscriptionsd",
+      "name": "视频订阅",
+      "impact": "停用后视频订阅和电视服务商能力不可用。",
+      "categoryID": "store",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.assetsubscriptiond",
+      "label": "com.apple.assetsubscriptiond",
+      "name": "订阅媒体资源",
+      "impact": "停用后订阅媒体资源无法管理和下载。",
+      "categoryID": "store",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -578,22 +1084,41 @@
       "label": "com.apple.musicd",
       "name": "音乐后台服务",
       "impact": "停用后音乐资料和相关后台播放测试可能无法完成。",
-      "categoryID": "delivery-commerce",
+      "categoryID": "store",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
     {
       "id": "personal.mail",
       "label": "com.apple.email.maild",
       "name": "邮件数据服务",
       "impact": "停用后邮件账户同步和依赖邮件数据的系统流程不可用。",
-      "categoryID": "personal-data",
+      "categoryID": "pim",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.exchangesyncd",
+      "label": "com.apple.exchangesyncd",
+      "name": "Exchange 同步",
+      "impact": "停用后 Microsoft Exchange 账户数据无法同步。",
+      "categoryID": "pim",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -603,9 +1128,12 @@
       "label": "com.apple.dataaccess.dataaccessd",
       "name": "账户数据访问",
       "impact": "停用后企业邮件、日历及联系人账户的同步入口受限。",
-      "categoryID": "personal-data",
+      "categoryID": "pim",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -615,9 +1143,12 @@
       "label": "com.apple.calaccessd",
       "name": "日历数据访问",
       "impact": "停用后日历事件读取、写入和权限相关测试可能失败。",
-      "categoryID": "personal-data",
+      "categoryID": "pim",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -627,9 +1158,12 @@
       "label": "com.apple.remindd",
       "name": "提醒事项数据",
       "impact": "停用后提醒事项的读取、写入和同步不可用。",
-      "categoryID": "personal-data",
+      "categoryID": "pim",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -639,9 +1173,27 @@
       "label": "com.apple.contactsd",
       "name": "联系人资料库",
       "impact": "停用后联系人选择器、权限和资料库操作测试可能失败。",
-      "categoryID": "personal-data",
+      "categoryID": "pim",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.contacts.postersyncd",
+      "label": "com.apple.contacts.postersyncd",
+      "name": "联系人海报同步",
+      "impact": "停用后联系人海报不会继续同步。",
+      "categoryID": "pim",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -651,22 +1203,26 @@
       "label": "com.apple.peopled",
       "name": "人物关系整理",
       "impact": "停用后联系人关系、互动建议和人物聚合不再更新。",
-      "categoryID": "personal-data",
+      "categoryID": "pim",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
     {
       "id": "web.bookmarks",
       "label": "com.apple.SafariBookmarksSyncAgent",
       "name": "Safari 书签同步",
       "impact": "停用后 Safari 书签不会与其他设备交换变更。",
-      "categoryID": "web-services",
+      "categoryID": "web",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -676,9 +1232,25 @@
       "label": "com.apple.Safari.History",
       "name": "Safari 历史记录",
       "impact": "停用后 Safari 历史记录的后台维护和同步会停止。",
-      "categoryID": "web-services",
+      "categoryID": "web",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.safari.passwordbreachd",
+      "label": "com.apple.Safari.passwordbreachd",
+      "name": "Safari 密码泄漏检查",
+      "impact": "停用后已存密码不会检查已知数据泄漏。",
+      "categoryID": "web",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -688,9 +1260,11 @@
       "label": "com.apple.Safari.SafeBrowsing.Service",
       "name": "网页安全检查",
       "impact": "停用后 Safari 的恶意站点检查能力可能不完整。",
-      "categoryID": "web-services",
+      "categoryID": "web",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -700,9 +1274,39 @@
       "label": "com.apple.safarifetcherd",
       "name": "Safari 后台抓取",
       "impact": "停用后 Safari 相关内容不会在后台预取。",
-      "categoryID": "web-services",
+      "categoryID": "web",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.webbookmarks.webbookmarksd",
+      "label": "com.apple.WebBookmarks.webbookmarksd",
+      "name": "网页书签与阅读列表",
+      "impact": "停用后网页书签、主屏幕网页和阅读列表无法维护。",
+      "categoryID": "web",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.webkit.adattributiond",
+      "label": "com.apple.webkit.adattributiond",
+      "name": "网页广告归因",
+      "impact": "停用后隐私保护的网页广告归因不可用。",
+      "categoryID": "web",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -712,9 +1316,11 @@
       "label": "com.apple.webkit.webpushd",
       "name": "网页推送",
       "impact": "停用后网站推送通知不会送达模拟器。",
-      "categoryID": "web-services",
+      "categoryID": "web",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -724,9 +1330,11 @@
       "label": "com.apple.webprivacyd",
       "name": "网页隐私维护",
       "impact": "停用后 Safari 的部分隐私状态和后台检查不会更新。",
-      "categoryID": "web-services",
+      "categoryID": "web",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -736,95 +1344,146 @@
       "label": "com.apple.swcd",
       "name": "通用链接关联",
       "impact": "停用后 Associated Domains 与通用链接测试可能得到错误结果。",
-      "categoryID": "web-services",
+      "categoryID": "web",
       "risk": "high",
-      "profiles": ["efficient"],
-      "alwaysEnabled": false,
-      "minimumRuntimeMajor": 26,
-      "maximumRuntimeMajor": 26
-    },
-
-    {
-      "id": "media.photo-analysis",
-      "label": "com.apple.photoanalysisd",
-      "name": "照片内容分析",
-      "impact": "停用后照片分类、场景识别和搜索索引不会继续生成。",
-      "categoryID": "media-library",
-      "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
     {
-      "id": "media.face-analysis",
-      "label": "com.apple.photosface",
-      "name": "照片人物分析",
-      "impact": "停用后照片中的人物识别和聚类不会在后台运行。",
-      "categoryID": "media-library",
-      "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
-      "alwaysEnabled": false,
-      "minimumRuntimeMajor": 26,
-      "maximumRuntimeMajor": 26
-    },
-    {
-      "id": "media.general-analysis",
-      "label": "com.apple.mediaanalysisd",
-      "name": "媒体内容分析",
-      "impact": "停用后图片和视频的后台语义分析停止。",
-      "categoryID": "media-library",
-      "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
-      "alwaysEnabled": false,
-      "minimumRuntimeMajor": 26,
-      "maximumRuntimeMajor": 26
-    },
-    {
-      "id": "media.library",
-      "label": "com.apple.medialibraryd",
-      "name": "媒体资料库维护",
-      "impact": "停用后系统媒体资料库的后台整理可能停止。",
-      "categoryID": "media-library",
-      "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
-      "alwaysEnabled": false,
-      "minimumRuntimeMajor": 26,
-      "maximumRuntimeMajor": 26
-    },
-    {
-      "id": "media.photo-assets",
-      "label": "com.apple.assetsd",
-      "name": "照片资源访问",
-      "impact": "停用后照片选择器和照片资料库相关测试可能失败。",
-      "categoryID": "media-library",
+      "id": "imported.com.apple.familycircled",
+      "label": "com.apple.familycircled",
+      "name": "家庭共享状态",
+      "impact": "停用后家庭共享成员和状态无法维护。",
+      "categoryID": "family",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
     {
-      "id": "media.stream",
-      "label": "com.apple.mediastream.mstreamd",
-      "name": "媒体流同步",
-      "impact": "停用后共享媒体流和相关后台同步不会运行。",
-      "categoryID": "media-library",
-      "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "id": "imported.com.apple.familycontrolsagent",
+      "label": "com.apple.FamilyControlsAgent",
+      "name": "家庭控制",
+      "impact": "停用后家长控制与 Family Controls 限制不会生效。",
+      "categoryID": "family",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
+    {
+      "id": "imported.com.apple.familynotification",
+      "label": "com.apple.familynotification",
+      "name": "家庭共享通知",
+      "impact": "停用后家庭共享邀请和通知不可用。",
+      "categoryID": "family",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.askpermissiond",
+      "label": "com.apple.askpermissiond",
+      "name": "购买前询问",
+      "impact": "停用后购买前询问请求无法处理。",
+      "categoryID": "family",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.asktod",
+      "label": "com.apple.asktod",
+      "name": "家庭审批",
+      "impact": "停用后家庭审批提示与响应无法传递。",
+      "categoryID": "family",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.screentimeagent",
+      "label": "com.apple.ScreenTimeAgent",
+      "name": "屏幕时间",
+      "impact": "停用后屏幕时间限制和使用报告不可用。",
+      "categoryID": "family",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.screentimesettingsagent",
+      "label": "com.apple.ScreenTimeSettingsAgent",
+      "name": "屏幕时间设置",
+      "impact": "停用后设置中的屏幕时间数据不可用。",
+      "categoryID": "family",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.usagetrackingagent",
+      "label": "com.apple.UsageTrackingAgent",
+      "name": "使用情况统计",
+      "impact": "停用后应用和网站使用时长不会继续统计。",
+      "categoryID": "family",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
     {
       "id": "wellbeing.health",
       "label": "com.apple.healthd",
       "name": "HealthKit 数据服务",
       "impact": "停用后 HealthKit 读写、授权和健康数据测试可能失败。",
-      "categoryID": "wellbeing-home",
+      "categoryID": "health",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -834,9 +1493,72 @@
       "label": "com.apple.healthappd",
       "name": "健康应用后台任务",
       "impact": "停用后健康应用的推荐和维护任务不会执行。",
-      "categoryID": "wellbeing-home",
+      "categoryID": "health",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.healthcontentd",
+      "label": "com.apple.healthcontentd",
+      "name": "健康内容",
+      "impact": "停用后健康教育和推荐内容不可用。",
+      "categoryID": "health",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.healtheventsd",
+      "label": "com.apple.healtheventsd",
+      "name": "健康事件",
+      "impact": "停用后健康事件和相关通知无法处理。",
+      "categoryID": "health",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.healthrecordsd",
+      "label": "com.apple.healthrecordsd",
+      "name": "健康记录同步",
+      "impact": "停用后临床健康记录无法同步。",
+      "categoryID": "health",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.finhealthd",
+      "label": "com.apple.finhealthd",
+      "name": "财务健康分析",
+      "impact": "停用后钱包交易与财务健康分析不可用。",
+      "categoryID": "health",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -846,9 +1568,12 @@
       "label": "com.apple.homed",
       "name": "家庭设备控制",
       "impact": "停用后 HomeKit 配件、家庭数据和自动化测试不可用。",
-      "categoryID": "wellbeing-home",
+      "categoryID": "health",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -858,9 +1583,42 @@
       "label": "com.apple.homeeventsd",
       "name": "家庭事件处理",
       "impact": "停用后家庭场景触发和设备事件不会在后台处理。",
-      "categoryID": "wellbeing-home",
+      "categoryID": "health",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.fitcore",
+      "label": "com.apple.fitcore",
+      "name": "Apple Fitness 后台",
+      "impact": "停用后 Apple Fitness 内容和后台服务不可用。",
+      "categoryID": "health",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.fitcore.session",
+      "label": "com.apple.fitcore.session",
+      "name": "Fitness 训练会话",
+      "impact": "停用后正在进行的 Apple Fitness 会话无法管理。",
+      "categoryID": "health",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -870,9 +1628,27 @@
       "label": "com.apple.fitnesscoachingd",
       "name": "健身指导内容",
       "impact": "停用后健身指导和推荐内容不会在后台准备。",
-      "categoryID": "wellbeing-home",
+      "categoryID": "health",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.fitnessintelligenced",
+      "label": "com.apple.fitnessintelligenced",
+      "name": "健身智能分析",
+      "impact": "停用后个性化健身洞察不会生成。",
+      "categoryID": "health",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -882,22 +1658,154 @@
       "label": "com.apple.activityawardsd",
       "name": "活动奖章计算",
       "impact": "停用后活动奖章和成就不会在后台更新。",
-      "categoryID": "wellbeing-home",
+      "categoryID": "health",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
+    {
+      "id": "imported.com.apple.activitysharingd",
+      "label": "com.apple.activitysharingd",
+      "name": "健身活动共享",
+      "impact": "停用后共享的健身活动数据无法同步。",
+      "categoryID": "health",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "media.photo-analysis",
+      "label": "com.apple.photoanalysisd",
+      "name": "照片内容分析",
+      "impact": "停用后照片分类、场景识别和搜索索引不会继续生成。",
+      "categoryID": "photos",
+      "risk": "low",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "media.face-analysis",
+      "label": "com.apple.photosface",
+      "name": "照片人物分析",
+      "impact": "停用后照片中的人物识别和聚类不会在后台运行。",
+      "categoryID": "photos",
+      "risk": "low",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "media.general-analysis",
+      "label": "com.apple.mediaanalysisd",
+      "name": "媒体内容分析",
+      "impact": "停用后图片和视频的后台语义分析停止。",
+      "categoryID": "photos",
+      "risk": "low",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.mediaanalysisd.service",
+      "label": "com.apple.mediaanalysisd.service",
+      "name": "隔离媒体分析",
+      "impact": "停用后隔离运行的媒体分析任务不可用。",
+      "categoryID": "photos",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "media.stream",
+      "label": "com.apple.mediastream.mstreamd",
+      "name": "媒体流同步",
+      "impact": "停用后共享媒体流和相关后台同步不会运行。",
+      "categoryID": "photos",
+      "risk": "moderate",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "media.library",
+      "label": "com.apple.medialibraryd",
+      "name": "媒体资料库维护",
+      "impact": "停用后系统媒体资料库的后台整理可能停止。",
+      "categoryID": "photos",
+      "risk": "moderate",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "media.photo-assets",
+      "label": "com.apple.assetsd",
+      "name": "照片资源访问",
+      "impact": "停用后照片选择器和照片资料库相关测试可能失败。",
+      "categoryID": "photos",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.assetsd.nebulad",
+      "label": "com.apple.assetsd.nebulad",
+      "name": "云端照片资源",
+      "impact": "停用后云端照片资源无法传输。",
+      "categoryID": "photos",
+      "risk": "high",
+      "profiles": [
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
     {
       "id": "content.news",
       "label": "com.apple.newsd",
       "name": "新闻内容更新",
       "impact": "停用后新闻内容和推荐不会在后台刷新。",
-      "categoryID": "content-feeds",
+      "categoryID": "apps",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -907,9 +1815,12 @@
       "label": "com.apple.weatherd",
       "name": "天气数据更新",
       "impact": "停用后天气应用与小组件不会主动更新数据。",
-      "categoryID": "content-feeds",
+      "categoryID": "apps",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -919,9 +1830,12 @@
       "label": "com.apple.Maps.mapssyncd",
       "name": "地图资料同步",
       "impact": "停用后地图收藏、历史和部分个性化数据不再同步。",
-      "categoryID": "content-feeds",
+      "categoryID": "apps",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -931,9 +1845,72 @@
       "label": "com.apple.Maps.mapspushd",
       "name": "地图后台推送",
       "impact": "停用后地图不会处理后台推送的内容更新。",
-      "categoryID": "content-feeds",
+      "categoryID": "apps",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.maps.geocorrectiond",
+      "label": "com.apple.Maps.geocorrectiond",
+      "name": "地图位置校正",
+      "impact": "停用后地图位置数据不会继续校正。",
+      "categoryID": "apps",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.maps.destinationd",
+      "label": "com.apple.maps.destinationd",
+      "name": "地图目的地建议",
+      "impact": "停用后地图目的地预测与建议不可用。",
+      "categoryID": "apps",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.mapkit.snapshotservice",
+      "label": "com.apple.MapKit.SnapshotService",
+      "name": "地图快照",
+      "impact": "停用后应用无法正常生成静态地图快照。",
+      "categoryID": "apps",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.jetpackassetd",
+      "label": "com.apple.jetpackassetd",
+      "name": "Apple 内容资源",
+      "impact": "停用后 Apple 内容应用所需资源无法下载。",
+      "categoryID": "apps",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -943,9 +1920,12 @@
       "label": "com.apple.tipsd",
       "name": "使用技巧推荐",
       "impact": "停用后系统不会在后台整理和推荐使用技巧。",
-      "categoryID": "content-feeds",
+      "categoryID": "apps",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -955,9 +1935,12 @@
       "label": "com.apple.gamed",
       "name": "Game Center 后台服务",
       "impact": "停用后排行榜、成就和 Game Center 身份测试不可用。",
-      "categoryID": "content-feeds",
+      "categoryID": "apps",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -967,22 +1950,42 @@
       "label": "com.apple.gamesaved",
       "name": "游戏存档同步",
       "impact": "停用后游戏存档的后台同步和恢复不会工作。",
-      "categoryID": "content-feeds",
+      "categoryID": "apps",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
+    {
+      "id": "imported.com.apple.gamecontroller.gamecontrollerd",
+      "label": "com.apple.GameController.gamecontrollerd",
+      "name": "游戏控制器",
+      "impact": "停用后游戏控制器无法发现或传递输入。",
+      "categoryID": "apps",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
     {
       "id": "communication.identity",
       "label": "com.apple.identityservicesd",
       "name": "通信身份服务",
       "impact": "停用后信息、FaceTime 和相关 Apple 通信身份流程失败。",
-      "categoryID": "communication",
+      "categoryID": "messaging",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -992,9 +1995,27 @@
       "label": "com.apple.ids_simd",
       "name": "模拟器通信桥接",
       "impact": "停用后模拟器中的 Apple 通信服务桥接可能不可用。",
-      "categoryID": "communication",
+      "categoryID": "messaging",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.imautomatichistorydeletionagent",
+      "label": "com.apple.imautomatichistorydeletionagent",
+      "name": "信息记录自动清理",
+      "impact": "停用后信息历史不会按保留设置自动清理。",
+      "categoryID": "messaging",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1004,9 +2025,12 @@
       "label": "com.apple.imcore.imtransferagent",
       "name": "信息附件传输",
       "impact": "停用后信息附件的发送、接收和后台传输不可用。",
-      "categoryID": "communication",
+      "categoryID": "messaging",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1016,9 +2040,27 @@
       "label": "com.apple.imdpersistence.IMDPersistenceAgent",
       "name": "信息记录存储",
       "impact": "停用后信息记录的持久化和查询可能无法正常工作。",
-      "categoryID": "communication",
+      "categoryID": "messaging",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.facetimemessagestored",
+      "label": "com.apple.facetimemessagestored",
+      "name": "FaceTime 信息存储",
+      "impact": "停用后 FaceTime 信息及相关数据无法保存。",
+      "categoryID": "messaging",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1028,9 +2070,12 @@
       "label": "com.apple.telephonyutilities.callservicesd",
       "name": "系统通话协调",
       "impact": "停用后 FaceTime 与系统通话界面的集成测试不可用。",
-      "categoryID": "communication",
+      "categoryID": "messaging",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1040,9 +2085,12 @@
       "label": "com.apple.rapportd",
       "name": "附近设备与接力",
       "impact": "停用后接力、附近设备发现和跨设备协作能力不可用。",
-      "categoryID": "communication",
+      "categoryID": "connectivity",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1052,9 +2100,12 @@
       "label": "com.apple.companiond",
       "name": "配对设备协调",
       "impact": "停用后与配对设备相关的发现和状态维护不会运行。",
-      "categoryID": "communication",
+      "categoryID": "connectivity",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1064,9 +2115,12 @@
       "label": "com.apple.carkitd",
       "name": "车载连接",
       "impact": "停用后 CarPlay 连接和车载场景测试不可用。",
-      "categoryID": "communication",
+      "categoryID": "connectivity",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1076,9 +2130,12 @@
       "label": "com.apple.wcd",
       "name": "手表连接",
       "impact": "停用后与 Apple Watch 有关的连接和状态交换不可用。",
-      "categoryID": "communication",
+      "categoryID": "connectivity",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1088,9 +2145,87 @@
       "label": "com.apple.tvremoted",
       "name": "电视遥控连接",
       "impact": "停用后系统电视遥控器的设备发现和连接不可用。",
-      "categoryID": "communication",
+      "categoryID": "connectivity",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.avatarsd",
+      "label": "com.apple.avatarsd",
+      "name": "头像与拟我表情",
+      "impact": "停用后头像和拟我表情资源无法维护。",
+      "categoryID": "connectivity",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.stickersd",
+      "label": "com.apple.stickersd",
+      "name": "贴纸服务",
+      "impact": "停用后贴纸包和最近使用的贴纸无法维护。",
+      "categoryID": "connectivity",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.sociallayerd",
+      "label": "com.apple.sociallayerd",
+      "name": "社交分享层",
+      "impact": "停用后部分社交分享和活动能力不可用。",
+      "categoryID": "connectivity",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.announced",
+      "label": "com.apple.announced",
+      "name": "播报通知",
+      "impact": "停用后播报通知和音频信息能力不可用。",
+      "categoryID": "connectivity",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.navd",
+      "label": "com.apple.navd",
+      "name": "后台导航",
+      "impact": "停用后系统后台导航状态无法协调。",
+      "categoryID": "connectivity",
+      "risk": "high",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1100,22 +2235,27 @@
       "label": "com.apple.findmy.findmylocated",
       "name": "查找位置服务",
       "impact": "停用后查找网络与设备位置相关流程不可用。",
-      "categoryID": "communication",
+      "categoryID": "connectivity",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
     {
       "id": "diagnostics.ad-privacy",
       "label": "com.apple.ap.adprivacyd",
       "name": "广告隐私度量",
       "impact": "停用后系统广告归因与隐私度量后台任务不会执行。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1125,9 +2265,12 @@
       "label": "com.apple.ap.promotedcontentd",
       "name": "推广内容服务",
       "impact": "停用后系统推广内容不会在后台请求和准备。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1137,9 +2280,12 @@
       "label": "com.apple.diagnosticextensionsd",
       "name": "诊断扩展收集",
       "impact": "停用后系统诊断扩展不会在后台采集额外信息。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1149,9 +2295,12 @@
       "label": "com.apple.feedbackd",
       "name": "系统反馈收集",
       "impact": "停用后系统反馈和诊断问卷相关后台工作停止。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1161,9 +2310,12 @@
       "label": "com.apple.rtcreportingd",
       "name": "实时通信质量报告",
       "impact": "停用后系统不会在后台整理实时通信质量报告。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1173,9 +2325,12 @@
       "label": "com.apple.securityuploadd",
       "name": "安全遥测上传",
       "impact": "停用后系统安全遥测不会在后台上传。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1185,9 +2340,12 @@
       "label": "com.apple.geoanalyticsd",
       "name": "地图诊断分析",
       "impact": "停用后地图和定位相关的质量统计不会在后台整理。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1197,9 +2355,12 @@
       "label": "com.apple.triald",
       "name": "系统实验配置",
       "impact": "停用后系统实验参数和后台试验资源不会刷新。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1209,9 +2370,27 @@
       "label": "com.apple.followupd",
       "name": "系统待处理提醒",
       "impact": "停用后账户或系统设置中的待处理提醒不会主动更新。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.purplebuddy.budd",
+      "label": "com.apple.purplebuddy.budd",
+      "name": "设置助理状态",
+      "impact": "停用后系统设置助理完成状态无法维护。",
+      "categoryID": "telemetry",
+      "risk": "low",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1221,22 +2400,26 @@
       "label": "com.apple.devicecheckd",
       "name": "DeviceCheck 服务",
       "impact": "停用后依赖 DeviceCheck 或 App Attest 的测试可能失败。",
-      "categoryID": "diagnostics",
+      "categoryID": "telemetry",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     },
-
     {
       "id": "extras.finance",
       "label": "com.apple.financed",
       "name": "金融内容后台服务",
       "impact": "停用后金融类系统内容不会在后台刷新。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1246,9 +2429,12 @@
       "label": "com.apple.passd",
       "name": "钱包凭证服务",
       "impact": "停用后 Wallet、票券和 Apple Pay 相关测试不可用。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1258,9 +2444,27 @@
       "label": "com.apple.merchantd",
       "name": "商户信息服务",
       "impact": "停用后商户识别和部分 Wallet 商户流程可能失败。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.coreidvd",
+      "label": "com.apple.coreidvd",
+      "name": "数字身份凭证",
+      "impact": "停用后支持的数字身份凭证无法管理。",
+      "categoryID": "other",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1270,9 +2474,12 @@
       "label": "com.apple.businessservicesd",
       "name": "企业内容服务",
       "impact": "停用后企业信息和商业内容不会在后台更新。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1282,9 +2489,12 @@
       "label": "com.apple.deviceaccessd",
       "name": "附近配件访问",
       "impact": "停用后使用 DeviceDiscoveryUI 等附近配件能力的测试受限。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1294,9 +2504,12 @@
       "label": "com.apple.replicatord",
       "name": "系统状态复制",
       "impact": "停用后部分跨进程状态复制和同步任务不会执行。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1306,9 +2519,27 @@
       "label": "com.apple.linkd",
       "name": "系统链接处理",
       "impact": "停用后部分系统内容链接和后台关联任务可能停止。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.ind",
+      "label": "com.apple.ind",
+      "name": "iCloud 后台通知",
+      "impact": "停用后 iCloud 后台通知无法接收。",
+      "categoryID": "other",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1318,9 +2549,27 @@
       "label": "com.apple.storagedatad",
       "name": "存储数据统计",
       "impact": "停用后系统设置中的存储分类和容量统计可能不再更新。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "moderate",
-      "profiles": ["balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
+      "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "imported.com.apple.statuskitagent",
+      "label": "com.apple.StatusKitAgent",
+      "name": "专注与状态共享",
+      "impact": "停用后专注、在线状态等信息无法在设备间共享。",
+      "categoryID": "other",
+      "risk": "moderate",
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1330,9 +2579,12 @@
       "label": "com.apple.countryd",
       "name": "区域能力配置",
       "impact": "停用后系统不会主动更新与地区有关的能力配置。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "low",
-      "profiles": ["conservative", "balanced", "efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1342,9 +2594,12 @@
       "label": "com.apple.mobileassetd",
       "name": "系统资源下载",
       "impact": "停用后系统组件、词典和其他按需资源无法自动准备。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
@@ -1354,10 +2609,25 @@
       "label": "com.apple.managedconfiguration.passcodenagd",
       "name": "管理式密码策略",
       "impact": "停用后企业管理配置中的密码策略测试可能不准确。",
-      "categoryID": "system-extras",
+      "categoryID": "other",
       "risk": "high",
-      "profiles": ["efficient"],
+      "profiles": [
+        "recommended",
+        "extreme"
+      ],
       "alwaysEnabled": false,
+      "minimumRuntimeMajor": 26,
+      "maximumRuntimeMajor": 26
+    },
+    {
+      "id": "core.share-sheet",
+      "label": "com.apple.sharingd",
+      "name": "系统分享协调",
+      "impact": "必须保持开启；关闭后系统分享面板及跨应用分享可能无法使用。",
+      "categoryID": "connectivity",
+      "risk": "protected",
+      "profiles": [],
+      "alwaysEnabled": true,
       "minimumRuntimeMajor": 26,
       "maximumRuntimeMajor": 26
     }

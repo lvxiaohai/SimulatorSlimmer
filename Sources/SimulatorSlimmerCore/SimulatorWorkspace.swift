@@ -311,7 +311,11 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       if !plan.unknownDisabledLabels.isEmpty {
         warnings.append("发现 \(plan.unknownDisabledLabels.count) 个非本应用管理的禁用项，将保持原样")
       }
-      if plan.changes.contains(where: { $0.risk == .high }) {
+      if profile == .extreme {
+        warnings.append("极致方案会停用全部可精简服务，部分系统集成功能将不可用")
+      } else if profile == .custom,
+        plan.changes.contains(where: { $0.risk == .high && $0.transition == .disable })
+      {
         warnings.append("该方案会停用高影响服务，请先确认相关能力不在本次测试范围内")
       }
       return OperationPreview(

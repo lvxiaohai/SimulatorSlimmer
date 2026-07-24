@@ -360,12 +360,34 @@ public struct ServiceState: Codable, Hashable, Sendable, Identifiable {
 public enum OptimizationProfile: String, Codable, CaseIterable, Hashable, Sendable,
   Identifiable
 {
-  case conservative
-  case balanced
-  case efficient
+  case recommended
+  case extreme
   case custom
 
   public var id: String { rawValue }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let value = try container.decode(String.self)
+    switch value {
+    case Self.recommended.rawValue, "conservative", "balanced":
+      self = .recommended
+    case Self.extreme.rawValue, "efficient":
+      self = .extreme
+    case Self.custom.rawValue:
+      self = .custom
+    default:
+      throw DecodingError.dataCorruptedError(
+        in: container,
+        debugDescription: "未知精简方案：\(value)"
+      )
+    }
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(rawValue)
+  }
 }
 
 public enum ServiceTransition: String, Codable, Sendable {

@@ -136,7 +136,7 @@ struct SimulatorWorkspaceBehaviorTests {
 
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     let events = try await confirmedCollect(operation, using: workspace)
@@ -234,7 +234,7 @@ struct SimulatorWorkspaceBehaviorTests {
 
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     let events = try await confirmedCollect(operation, using: workspace)
@@ -813,7 +813,7 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     _ = try await workspace.preview(operation)
@@ -864,7 +864,7 @@ struct SimulatorWorkspaceBehaviorTests {
 
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     let failedEvents = try await confirmedCollect(operation, using: workspace)
@@ -914,7 +914,7 @@ struct SimulatorWorkspaceBehaviorTests {
     _ = try await workspace.preview(
       .optimize(
         deviceID: await simulator.deviceID,
-        profile: .conservative,
+        profile: .recommended,
         customDisabledLabels: []
       )
     )
@@ -950,7 +950,7 @@ struct SimulatorWorkspaceBehaviorTests {
       _ = try await workspace.preview(
         .optimize(
           deviceID: await simulator.deviceID,
-          profile: .conservative,
+          profile: .recommended,
           customDisabledLabels: []
         )
       )
@@ -1195,7 +1195,7 @@ struct SimulatorWorkspaceBehaviorTests {
     let preview = try await workspace.preview(
       .optimize(
         deviceID: device.id,
-        profile: .conservative,
+        profile: .recommended,
         customDisabledLabels: []
       )
     )
@@ -1206,7 +1206,7 @@ struct SimulatorWorkspaceBehaviorTests {
       await workspace.perform(
         .optimize(
           deviceID: device.id,
-          profile: .conservative,
+          profile: .recommended,
           customDisabledLabels: []
         )
       )
@@ -1235,7 +1235,7 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
 
@@ -1263,7 +1263,7 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
 
@@ -1293,7 +1293,7 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
 
@@ -1320,7 +1320,7 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
 
@@ -1350,7 +1350,7 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
 
@@ -1425,7 +1425,7 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     _ = try await workspace.preview(operation)
@@ -1500,7 +1500,7 @@ struct SimulatorWorkspaceBehaviorTests {
 
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     let events = try await confirmedCollect(operation, using: workspace)
@@ -1551,12 +1551,12 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let firstOperation = SimulatorOperation.optimize(
       deviceID: firstDevice.id,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     let secondOperation = SimulatorOperation.optimize(
       deviceID: secondDevice.id,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
 
@@ -1588,12 +1588,12 @@ struct SimulatorWorkspaceBehaviorTests {
     )
     let earlier = SimulatorOperation.optimize(
       deviceID: device.id,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     let later = SimulatorOperation.optimize(
       deviceID: device.id,
-      profile: .balanced,
+      profile: .extreme,
       customDisabledLabels: []
     )
 
@@ -2134,7 +2134,7 @@ private func makeWorkspaceService(id: String, label: String) -> ManagedService {
     impact: "测试影响",
     categoryID: "test",
     risk: .low,
-    profiles: [.conservative, .balanced, .efficient]
+    profiles: [.recommended, .extreme]
   )
 }
 

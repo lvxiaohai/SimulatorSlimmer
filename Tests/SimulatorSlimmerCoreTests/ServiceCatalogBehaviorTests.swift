@@ -5,6 +5,27 @@ import Testing
 
 @Suite("服务方案行为")
 struct ServiceCatalogBehaviorTests {
+  @Test("旧版方案值可迁移到新版方案")
+  func legacyProfileValuesMigrate() throws {
+    let decoder = JSONDecoder()
+    let encoder = JSONEncoder()
+
+    for value in ["conservative", "balanced"] {
+      let profile = try decoder.decode(
+        OptimizationProfile.self,
+        from: Data("\"\(value)\"".utf8)
+      )
+      #expect(profile == .recommended)
+    }
+
+    let efficient = try decoder.decode(
+      OptimizationProfile.self,
+      from: Data("\"efficient\"".utf8)
+    )
+    #expect(efficient == .extreme)
+    #expect(String(decoding: try encoder.encode(efficient), as: UTF8.self) == "\"extreme\"")
+  }
+
   @Test("方案只生成必要差异并保留未知标签")
   func planContainsOnlyRequiredDifferences() {
     let catalog = makeBehaviorCatalog()
@@ -13,7 +34,7 @@ struct ServiceCatalogBehaviorTests {
     let plan = catalog.plan(
       deviceID: deviceID,
       runtimeVersion: "26.5",
-      profile: .conservative,
+      profile: .recommended,
       currentDisabledLabels: [
         "com.test.moderate",
         "com.test.protected",
@@ -72,7 +93,7 @@ struct ServiceCatalogBehaviorTests {
             "impact":"必须保持启用",
             "categoryID":"system",
             "risk":"protected",
-            "profiles":["conservative"],
+            "profiles":["recommended"],
             "alwaysEnabled":true
           }
         ]
@@ -93,7 +114,7 @@ struct ServiceCatalogBehaviorTests {
     let plan = catalog.plan(
       deviceID: deviceID,
       runtimeVersion: "26.5",
-      profile: .efficient,
+      profile: .extreme,
       currentDisabledLabels: [],
       presentLabels: presentLabels
     )
@@ -140,7 +161,7 @@ struct ServiceCatalogBehaviorTests {
     let plan = catalog.plan(
       deviceID: SimulatorID(rawValue: "11111111-2222-4333-8444-555555555555"),
       runtimeVersion: "unknown-runtime",
-      profile: .efficient,
+      profile: .extreme,
       currentDisabledLabels: []
     )
 
@@ -175,7 +196,7 @@ private func makeBehaviorCatalog() -> ServiceCatalog {
       impact: "低风险影响",
       categoryID: category.id,
       risk: .low,
-      profiles: [.conservative, .balanced, .efficient]
+      profiles: [.recommended, .extreme]
     ),
     ManagedService(
       id: "moderate",
@@ -184,7 +205,7 @@ private func makeBehaviorCatalog() -> ServiceCatalog {
       impact: "中风险影响",
       categoryID: category.id,
       risk: .moderate,
-      profiles: [.balanced, .efficient]
+      profiles: [.extreme]
     ),
     ManagedService(
       id: "high",
@@ -193,7 +214,7 @@ private func makeBehaviorCatalog() -> ServiceCatalog {
       impact: "高风险影响",
       categoryID: category.id,
       risk: .high,
-      profiles: [.efficient]
+      profiles: [.extreme]
     ),
     ManagedService(
       id: "protected",

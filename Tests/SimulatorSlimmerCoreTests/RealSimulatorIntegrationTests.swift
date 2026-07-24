@@ -56,7 +56,7 @@ struct RealSimulatorIntegrationTests {
 
     let optimizeOperation = SimulatorOperation.optimize(
       deviceID: deviceID,
-      profile: .conservative,
+      profile: .recommended,
       customDisabledLabels: []
     )
     _ = try await workspace.preview(optimizeOperation)
