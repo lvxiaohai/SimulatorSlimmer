@@ -41,7 +41,7 @@ struct OptimizationView: View {
 
   var body: some View {
     ScrollView {
-      LazyVStack(alignment: .leading, spacing: 16) {
+      VStack(alignment: .leading, spacing: 16) {
         operationState
         metrics
         profilePanel
