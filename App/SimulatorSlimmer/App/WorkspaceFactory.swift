@@ -314,8 +314,10 @@ enum WorkspaceFactory {
           : snapshot.plans[profile]?.changes ?? []
         return OperationPreview(
           operation: operation,
-          title: "优化计划",
-          summary: "仅修改预览中列出的模拟器后台服务；完成后会重新读取状态并保存恢复基线。",
+          title: profile == .allEnabled ? "启用全部服务" : "优化计划",
+          summary: profile == .allEnabled
+            ? "启用本应用可管理的全部服务；非本应用管理的禁用项保持不变。"
+            : "仅修改预览中列出的模拟器后台服务；完成后会重新读取状态并保存恢复基线。",
           serviceChanges: changes,
           warnings: profile == .extreme ? ["极致方案会停用全部可精简服务。"] : []
         )
@@ -602,7 +604,26 @@ enum WorkspaceFactory {
       for profile: OptimizationProfile,
       services: [ServiceState]
     ) -> [ServiceChange] {
-      services.compactMap { state in
+      if profile == .allEnabled {
+        return services.compactMap { state in
+          guard
+            state.isDisabled,
+            !state.service.alwaysEnabled,
+            state.service.risk != .protected
+          else { return nil }
+          return ServiceChange(
+            label: state.service.label,
+            serviceName: state.service.name,
+            categoryID: state.service.categoryID,
+            risk: state.service.risk,
+            transition: .enable,
+            impact: state.service.impact,
+            currentDisabled: true,
+            targetDisabled: false
+          )
+        }
+      }
+      return services.compactMap { state in
         guard
           !state.service.alwaysEnabled,
           state.service.risk != .protected,

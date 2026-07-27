@@ -126,11 +126,13 @@ struct ServiceCatalog: Sendable {
     let mutable = applicable.filter { !$0.alwaysEnabled && $0.risk != .protected }
     let mutableLabels = Set(mutable.map(\.label))
 
-    let desired: Set<String>
-    if profile == .custom {
-      desired = customDisabledLabels.intersection(mutableLabels)
-    } else {
-      desired = Set(mutable.filter { $0.profiles.contains(profile) }.map(\.label))
+    let desired: Set<String> = switch profile {
+    case .custom:
+      customDisabledLabels.intersection(mutableLabels)
+    case .allEnabled:
+      []
+    case .recommended, .extreme:
+      Set(mutable.filter { $0.profiles.contains(profile) }.map(\.label))
     }
 
     var changes: [ServiceChange] = []

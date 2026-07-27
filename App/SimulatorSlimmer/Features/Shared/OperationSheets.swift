@@ -47,8 +47,8 @@ private struct OperationExecutionSheet: View {
     .frame(
       minWidth: 560,
       idealWidth: 620,
-      minHeight: 400,
-      idealHeight: 500
+      minHeight: 320,
+      idealHeight: 340
     )
     .background(Color.instrumentBackground)
     .interactiveDismissDisabled()
@@ -151,7 +151,8 @@ struct OperationPreviewSheet: View {
             )
             PreviewChangeGroupList(
               changes: preview.serviceChanges,
-              categories: presentation.categories
+              categories: presentation.categories,
+              services: presentation.services
             )
           }
         }
@@ -232,7 +233,7 @@ struct OperationPreviewSheet: View {
   }
 
   private var impactItems: [PreviewImpactItem] {
-    switch preview.operation.kind {
+    return switch preview.operation.kind {
     case .delete:
       [
         PreviewImpactItem(
@@ -429,7 +430,12 @@ struct OperationPreviewSheet: View {
   }
 
   private var executeTitle: String {
-    switch preview.operation.kind {
+    if case .optimize(_, let profile, _) = preview.operation,
+      profile == .allEnabled
+    {
+      return L10n.text("action.enable-all-services")
+    }
+    return switch preview.operation.kind {
     case .optimize: L10n.text("action.optimize-device")
     case .verify: L10n.text("action.continue-verification")
     case .restore: L10n.text("action.restore")
@@ -712,16 +718,23 @@ private struct PreviewChangeGroupList: View {
     let id: String
     let name: String
     let symbol: String
+    let approximateIdleMemoryMB: Int?
     let changes: [ServiceChange]
   }
 
   let changes: [ServiceChange]
   let categories: [ServiceCategory]
+  let services: [ServiceState]
   @State private var expandedCategoryIDs: Set<String>
 
-  init(changes: [ServiceChange], categories: [ServiceCategory]) {
+  init(
+    changes: [ServiceChange],
+    categories: [ServiceCategory],
+    services: [ServiceState]
+  ) {
     self.changes = changes
     self.categories = categories
+    self.services = services
     _expandedCategoryIDs = State(initialValue: Set(changes.map(\.categoryID)))
   }
 
@@ -733,6 +746,7 @@ private struct PreviewChangeGroupList: View {
         id: category.id,
         name: category.name,
         symbol: category.symbol,
+        approximateIdleMemoryMB: category.approximateIdleMemoryMB,
         changes: changes.sorted(by: serviceNameAscending)
       )
     }
@@ -743,6 +757,7 @@ private struct PreviewChangeGroupList: View {
         id: categoryID,
         name: categoryID,
         symbol: "square.grid.2x2",
+        approximateIdleMemoryMB: nil,
         changes: changes.sorted(by: serviceNameAscending)
       )
     }
@@ -781,9 +796,17 @@ private struct PreviewChangeGroupList: View {
             Text(group.name)
               .font(.subheadline.weight(.medium))
             Spacer()
-            Text(L10n.formatted("format.items", group.changes.count))
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(.secondary)
+            VStack(alignment: .trailing, spacing: 2) {
+              if let megabytes = group.approximateIdleMemoryMB {
+                CategoryMemoryEstimateLabel(
+                  megabytes: megabytes,
+                  style: isCompleteGroupDisable(group) ? .expectedReduction : .reference
+                )
+              }
+              Text(L10n.formatted("format.items", group.changes.count))
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            }
           }
           .frame(minHeight: 40)
           .accessibilityIdentifier("preview-change-group.\(group.id)")
@@ -801,6 +824,16 @@ private struct PreviewChangeGroupList: View {
 
   private func serviceNameAscending(_ lhs: ServiceChange, _ rhs: ServiceChange) -> Bool {
     lhs.serviceName.localizedStandardCompare(rhs.serviceName) == .orderedAscending
+  }
+
+  private func isCompleteGroupDisable(_ group: Group) -> Bool {
+    let categoryServices = services.filter {
+      $0.isOptimizationCandidate && $0.service.categoryID == group.id
+    }
+    guard !categoryServices.isEmpty, categoryServices.count == group.changes.count else {
+      return false
+    }
+    return group.changes.allSatisfy { $0.transition == .disable }
   }
 }
 

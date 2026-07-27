@@ -189,7 +189,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     } else {
       currentDisabled = []
       presentLabels = nil
-      memoryError = "启动模拟器后可读取实时物理内存；执行优化时会临时启动并恢复电源状态"
+      memoryError = "启动模拟器后可读取实时物理内存。"
     }
 
     var plans: [OptimizationProfile: OptimizationPlan] = [:]
@@ -307,7 +307,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
         intendedOriginalDeviceState: context.device.state,
         previewGeneration: previewGeneration
       )
-      var warnings = powerStateWarnings(context.device, action: "优化")
+      let actionName = profile == .allEnabled ? "启用全部服务" : "优化"
+      var warnings = powerStateWarnings(context.device, action: actionName)
       if !plan.unknownDisabledLabels.isEmpty {
         warnings.append("发现 \(plan.unknownDisabledLabels.count) 个非本应用管理的禁用项，将保持原样")
       }
@@ -320,10 +321,19 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       }
       return OperationPreview(
         operation: operation,
-        title: "优化 \(context.device.name)",
-        summary: plan.changes.isEmpty
-          ? "设备已经符合所选方案，不需要修改服务。"
-          : "将按严格允许列表执行 \(plan.changes.count) 项差异，随后重启、验证并保存恢复基线。",
+        title: profile == .allEnabled
+          ? "启用 \(context.device.name) 的全部服务"
+          : "优化 \(context.device.name)",
+        summary: {
+          if profile == .allEnabled {
+            return plan.changes.isEmpty
+              ? "当前没有需要启用的受管服务。"
+              : "将启用本应用可管理的 \(plan.changes.count) 项已停用服务，随后重启并验证；非本应用管理的禁用项保持不变。"
+          }
+          return plan.changes.isEmpty
+            ? "设备已经符合所选方案，不需要修改服务。"
+            : "将按严格允许列表执行 \(plan.changes.count) 项差异，随后重启、验证并保存恢复基线。"
+        }(),
         serviceChanges: plan.changes,
         warnings: warnings,
         requiresConfirmation: true

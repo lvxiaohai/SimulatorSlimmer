@@ -15,6 +15,29 @@ struct ServiceCatalogContractTests {
     #expect(catalog.services.count == 171)
     #expect(catalog.categories.allSatisfy { containsHanCharacter($0.name) })
     #expect(catalog.categories.allSatisfy { containsHanCharacter($0.summary) })
+    #expect(
+      Dictionary(
+        uniqueKeysWithValues: catalog.categories.compactMap { category in
+          category.approximateIdleMemoryMB.map { (category.id, $0) }
+        }
+      ) == [
+        "widgets": 675,
+        "siri": 265,
+        "search": 50,
+        "icloud": 100,
+        "store": 80,
+        "pim": 80,
+        "web": 50,
+        "family": 65,
+        "health": 135,
+        "photos": 60,
+        "apps": 90,
+        "messaging": 60,
+        "connectivity": 65,
+        "telemetry": 105,
+        "other": 195,
+      ]
+    )
     #expect(catalog.services.allSatisfy { containsHanCharacter($0.name) })
     #expect(catalog.services.allSatisfy { containsHanCharacter($0.impact) })
   }
@@ -68,6 +91,7 @@ struct ServiceCatalogContractTests {
         #expect(service.profiles.contains(.recommended) == !shouldRemainEnabled)
       }
       #expect(!service.profiles.contains(.custom))
+      #expect(!service.profiles.contains(.allEnabled))
     }
   }
 

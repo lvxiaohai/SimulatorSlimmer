@@ -6,7 +6,6 @@ struct SettingsView: View {
   @AppStorage("automaticRefresh") private var automaticRefresh = true
   @AppStorage("automaticRefreshInterval") private var automaticRefreshInterval = 30.0
   @AppStorage("showUnavailableDevices") private var showUnavailableDevices = false
-  @AppStorage("defaultProfile") private var defaultProfile = OptimizationProfile.recommended.rawValue
   @AppStorage("menuBarEnabled") private var menuBarEnabled = true
 
   var body: some View {
@@ -82,22 +81,6 @@ struct SettingsView: View {
           summary: L10n.text("settings.show-unavailable.summary"),
           isOn: $showUnavailableDevices
         )
-
-        Divider()
-        settingRow(
-          title: L10n.text("settings.default-profile"),
-          summary: L10n.text("settings.default-profile.summary")
-        ) {
-          Picker("settings.default-profile", selection: $defaultProfile) {
-            ForEach(OptimizationProfile.allCases.filter { $0 != .custom }) { profile in
-              Text(profile.localizedTitle).tag(profile.rawValue)
-            }
-          }
-          .labelsHidden()
-          .controlSize(.regular)
-          .frame(minWidth: 112, alignment: .trailing)
-          .fixedSize(horizontal: true, vertical: false)
-        }
       }
       .animation(
         reduceMotion ? nil : .easeOut(duration: 0.16),

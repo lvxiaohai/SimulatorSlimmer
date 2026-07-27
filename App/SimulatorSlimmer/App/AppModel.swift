@@ -79,7 +79,6 @@ final class AppModel {
   init(workspace: any SimulatorWorkspaceClient) {
     self.workspace = workspace
     lastKnownDisabledServiceLabelsByDevice = Self.storedLastKnownDisabledServiceLabels()
-    selectedProfile = Self.storedDefaultProfile()
     let storedCustomSelection = Self.storedCustomSelection()
     customDisabledLabels = storedCustomSelection.labels
     didInitializeCustomSelection = storedCustomSelection.isInitialized
@@ -305,32 +304,10 @@ final class AppModel {
     let draft =
       optimizationDrafts[deviceID]
       ?? OptimizationDraft(
-        profile: Self.storedDefaultProfile()
+        profile: .recommended
       )
     selectedProfile = draft.profile
     editingOptimizationDeviceID = deviceID
-  }
-
-  private static func storedDefaultProfile() -> OptimizationProfile {
-    let defaults = UserDefaults.standard
-    guard let rawValue = defaults.string(forKey: "defaultProfile") else {
-      return .recommended
-    }
-    let profile: OptimizationProfile
-    switch rawValue {
-    case OptimizationProfile.recommended.rawValue, "conservative", "balanced":
-      profile = .recommended
-    case OptimizationProfile.extreme.rawValue, "efficient":
-      profile = .extreme
-    case OptimizationProfile.custom.rawValue:
-      profile = .recommended
-    default:
-      profile = .recommended
-    }
-    if rawValue != profile.rawValue {
-      defaults.set(profile.rawValue, forKey: "defaultProfile")
-    }
-    return profile
   }
 
   private static func storedCustomSelection() -> (
@@ -1420,6 +1397,10 @@ final class AppModel {
       snapshot?.device.id == operation.deviceID
       ? snapshot?.categories ?? []
       : []
+    let previewServices =
+      snapshot?.device.id == operation.deviceID
+      ? snapshot?.services ?? []
+      : []
     previewRequestGeneration &+= 1
     let requestGeneration = previewRequestGeneration
     previewTask?.cancel()
@@ -1443,7 +1424,8 @@ final class AppModel {
         previewPresentation = PreviewPresentation(
           preview: preview,
           confirmsExecution: confirmsExecution,
-          categories: previewCategories
+          categories: previewCategories,
+          services: previewServices
         )
       } catch is CancellationError {
         return

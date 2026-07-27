@@ -574,7 +574,7 @@ private struct BatchOptimizationView: View {
   @Bindable var model: AppModel
 
   private let profiles: [OptimizationProfile] = [
-    .recommended, .extreme, .custom,
+    .recommended, .extreme, .custom, .allEnabled,
   ]
 
   private var runIsActive: Bool { model.batchRun?.isRunning == true }
@@ -788,6 +788,8 @@ private struct BatchOptimizationView: View {
       "bolt.fill"
     case .custom:
       "slider.horizontal.3"
+    case .allEnabled:
+      "play.circle.fill"
     default:
       "info.circle.fill"
     }

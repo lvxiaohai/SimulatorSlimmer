@@ -294,12 +294,20 @@ public struct ServiceCategory: Codable, Hashable, Sendable, Identifiable {
   public let name: String
   public let summary: String
   public let symbol: String
+  public let approximateIdleMemoryMB: Int?
 
-  public init(id: String, name: String, summary: String, symbol: String) {
+  public init(
+    id: String,
+    name: String,
+    summary: String,
+    symbol: String,
+    approximateIdleMemoryMB: Int? = nil
+  ) {
     self.id = id
     self.name = name
     self.summary = summary
     self.symbol = symbol
+    self.approximateIdleMemoryMB = approximateIdleMemoryMB
   }
 }
 
@@ -363,6 +371,7 @@ public enum OptimizationProfile: String, Codable, CaseIterable, Hashable, Sendab
   case recommended
   case extreme
   case custom
+  case allEnabled
 
   public var id: String { rawValue }
 
@@ -376,6 +385,8 @@ public enum OptimizationProfile: String, Codable, CaseIterable, Hashable, Sendab
       self = .extreme
     case Self.custom.rawValue:
       self = .custom
+    case Self.allEnabled.rawValue:
+      self = .allEnabled
     default:
       throw DecodingError.dataCorruptedError(
         in: container,

@@ -312,6 +312,38 @@ struct SimulatorStateChip: View {
   }
 }
 
+enum CategoryMemoryEstimateStyle {
+  case approximate
+  case reference
+  case expectedReduction
+
+  var formatKey: String.LocalizationValue {
+    switch self {
+    case .approximate:
+      "category-memory.approximate"
+    case .reference:
+      "category-memory.reference"
+    case .expectedReduction:
+      "category-memory.expected-reduction"
+    }
+  }
+}
+
+struct CategoryMemoryEstimateLabel: View {
+  let megabytes: Int
+  let style: CategoryMemoryEstimateStyle
+
+  var body: some View {
+    Text(L10n.formatted(style.formatKey, megabytes))
+      .font(.caption.weight(.semibold).monospacedDigit())
+      .foregroundStyle(.secondary)
+      .lineLimit(1)
+      .help(L10n.text("category-memory.help"))
+      .accessibilityLabel(L10n.formatted(style.formatKey, megabytes))
+      .accessibilityHint("category-memory.help")
+  }
+}
+
 struct RiskBadge: View {
   let risk: ServiceRisk
 

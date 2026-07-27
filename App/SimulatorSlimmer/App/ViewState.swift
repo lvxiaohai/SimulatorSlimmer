@@ -70,15 +70,18 @@ struct PreviewPresentation: Identifiable {
   let preview: OperationPreview
   let confirmsExecution: Bool
   let categories: [ServiceCategory]
+  let services: [ServiceState]
 
   init(
     preview: OperationPreview,
     confirmsExecution: Bool,
-    categories: [ServiceCategory] = []
+    categories: [ServiceCategory] = [],
+    services: [ServiceState] = []
   ) {
     self.preview = preview
     self.confirmsExecution = confirmsExecution
     self.categories = categories
+    self.services = services
   }
 }
 
@@ -257,6 +260,7 @@ extension OptimizationProfile {
     case .recommended: L10n.text("profile.recommended")
     case .extreme: L10n.text("profile.extreme")
     case .custom: L10n.text("profile.custom")
+    case .allEnabled: L10n.text("profile.all-enabled")
     }
   }
 
@@ -265,6 +269,7 @@ extension OptimizationProfile {
     case .recommended: L10n.text("profile.recommended.summary")
     case .extreme: L10n.text("profile.extreme.summary")
     case .custom: L10n.text("profile.custom.summary")
+    case .allEnabled: L10n.text("profile.all-enabled.summary")
     }
   }
 }

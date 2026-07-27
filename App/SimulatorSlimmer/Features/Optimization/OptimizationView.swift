@@ -9,34 +9,8 @@ struct OptimizationView: View {
     snapshot.services.filter(\.isOptimizationCandidate)
   }
 
-  private var optimizationServiceLabels: Set<String> {
-    Set(optimizationServices.map(\.service.label))
-  }
-
   private var disabledServiceCount: Int? {
     model.disabledServiceCount(for: snapshot)
-  }
-
-  private var effectiveChanges: [ServiceChange] {
-    if model.selectedProfile == .custom {
-      return optimizationServices.compactMap { state in
-        let shouldDisable = model.customDisabledLabels.contains(state.service.label)
-        guard state.isDisabled != shouldDisable else { return nil }
-        return ServiceChange(
-          label: state.service.label,
-          serviceName: state.service.name,
-          categoryID: state.service.categoryID,
-          risk: state.service.risk,
-          transition: shouldDisable ? .disable : .enable,
-          impact: state.service.impact,
-          currentDisabled: state.isDisabled,
-          targetDisabled: shouldDisable
-        )
-      }
-    }
-    return (snapshot.plans[model.selectedProfile]?.changes ?? []).filter {
-      optimizationServiceLabels.contains($0.label)
-    }
   }
 
   var body: some View {
@@ -114,7 +88,7 @@ struct OptimizationView: View {
       value: disabledServiceCount.map { L10n.formatted("format.items", $0) } ?? "-",
       unitDetail: nil,
       symbol: "switch.2",
-      tint: effectiveChanges.isEmpty ? .mint : .orange,
+      tint: .mint,
       progress: disabledServiceCount.flatMap { count in
         optimizationServices.isEmpty
           ? nil
@@ -137,12 +111,7 @@ struct OptimizationView: View {
   private var profilePanel: some View {
     InstrumentCard {
       VStack(alignment: .leading, spacing: 16) {
-        InstrumentSectionLabel(
-          title: "optimization.profile.title",
-          detail: model.selectedProfile == .recommended
-            ? L10n.text("profile.default")
-            : nil
-        )
+        InstrumentSectionLabel(title: "optimization.profile.title")
 
         Picker("optimization.profile.title", selection: $model.selectedProfile) {
           ForEach(OptimizationProfile.allCases) { profile in
@@ -242,12 +211,23 @@ struct OptimizationView: View {
       if model.isPreparingPreview(for: snapshot.device.id, confirmsExecution: true) {
         loadingLabel
       } else {
-        Label("action.optimize-device", systemImage: "gauge.with.dots.needle.50percent")
+        Label(
+          model.selectedProfile == .allEnabled
+            ? L10n.text("action.enable-all-services")
+            : L10n.text("action.optimize-device"),
+          systemImage: model.selectedProfile == .allEnabled
+            ? "play.circle"
+            : "gauge.with.dots.needle.50percent"
+        )
       }
     }
     .buttonStyle(PressablePrimaryButtonStyle())
     .disabled(isBusy || !snapshot.device.isAvailable)
-    .accessibilityHint("action.optimize-device.hint")
+    .accessibilityHint(
+      model.selectedProfile == .allEnabled
+        ? L10n.text("action.enable-all-services.hint")
+        : L10n.text("action.optimize-device.hint")
+    )
   }
 
   private var isBusy: Bool {
@@ -355,7 +335,15 @@ struct CustomServicePicker: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            categoryStatusSummary(for: services)
+            VStack(alignment: .trailing, spacing: 2) {
+              if let megabytes = category.approximateIdleMemoryMB {
+                CategoryMemoryEstimateLabel(
+                  megabytes: megabytes,
+                  style: .approximate
+                )
+              }
+              categoryStatusSummary(for: services)
+            }
           }
           .frame(minHeight: 40)
         }
