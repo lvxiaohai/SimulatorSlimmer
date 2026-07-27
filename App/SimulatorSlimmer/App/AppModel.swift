@@ -606,7 +606,7 @@ final class AppModel {
           )
           return
         }
-        NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+        FinderFolderOpener.open(folderURL)
       } catch is CancellationError {
         guard openingApplicationBundleID == application.bundleIdentifier else { return }
         openingApplicationBundleID = nil
@@ -1677,17 +1677,29 @@ struct MenuBarDeviceItem: Identifiable {
   var id: SimulatorID { snapshot.device.id }
 }
 
+private struct MenuBarApplicationCacheEntry {
+  let applications: [MenuBarApplicationItem]
+  let applicationError: String?
+  let collectedAt: Date
+}
+
 @MainActor
 @Observable
 final class MenuBarModel {
   private let workspace: any SimulatorWorkspaceClient
+  private static let applicationCacheLifetime: TimeInterval = 15
 
   var devices: [MenuBarDeviceItem] = []
   var isRefreshing = false
   var refreshError: String?
+  var actionError: String?
 
   @ObservationIgnored private var refreshTask: Task<Void, Never>?
   @ObservationIgnored private var folderTask: Task<Void, Never>?
+  @ObservationIgnored private var deviceActionTask: Task<Void, Never>?
+  @ObservationIgnored private var applicationCacheByDevice:
+    [SimulatorID: MenuBarApplicationCacheEntry] = [:]
+  @ObservationIgnored private var applicationIconCache: [URL: NSImage] = [:]
   @ObservationIgnored var didChange: (() -> Void)?
 
   init(workspace: any SimulatorWorkspaceClient) {
@@ -1703,14 +1715,34 @@ final class MenuBarModel {
       guard let self else { return }
       do {
         let snapshot = try await workspace.menuBarSnapshot()
+        let runningDeviceIDs = Set(snapshot.devices.map(\.device.id))
+        applicationCacheByDevice = applicationCacheByDevice.filter {
+          runningDeviceIDs.contains($0.key)
+        }
         var resolvedDevices: [MenuBarDeviceItem] = []
         resolvedDevices.reserveCapacity(snapshot.devices.count)
 
         for deviceSnapshot in snapshot.devices {
           try Task.checkCancellation()
+          let deviceID = deviceSnapshot.device.id
+          if
+            let cached = applicationCacheByDevice[deviceID],
+            Date().timeIntervalSince(cached.collectedAt)
+              < Self.applicationCacheLifetime
+          {
+            resolvedDevices.append(
+              MenuBarDeviceItem(
+                snapshot: deviceSnapshot,
+                applications: cached.applications,
+                applicationError: cached.applicationError
+              )
+            )
+            continue
+          }
+
           do {
             let applicationSnapshot = try await workspace.applications(
-              for: deviceSnapshot.device.id
+              for: deviceID
             )
             let applications = applicationSnapshot.applications
               .filter { $0.kind == .user }
@@ -1720,9 +1752,16 @@ final class MenuBarModel {
                   memory: applicationSnapshot.memoryByBundleIdentifier[
                     application.bundleIdentifier
                   ],
-                  icon: Self.applicationIcon(for: application)
+                  icon: applicationIcon(for: application)
                 )
               }
+              .sorted(by: Self.applicationSort)
+            let cacheEntry = MenuBarApplicationCacheEntry(
+              applications: applications,
+              applicationError: applicationSnapshot.memoryError,
+              collectedAt: Date()
+            )
+            applicationCacheByDevice[deviceID] = cacheEntry
             resolvedDevices.append(
               MenuBarDeviceItem(
                 snapshot: deviceSnapshot,
@@ -1733,10 +1772,11 @@ final class MenuBarModel {
           } catch is CancellationError {
             throw CancellationError()
           } catch {
+            let cached = applicationCacheByDevice[deviceID]
             resolvedDevices.append(
               MenuBarDeviceItem(
                 snapshot: deviceSnapshot,
-                applications: [],
+                applications: cached?.applications ?? [],
                 applicationError: error.localizedDescription
               )
             )
@@ -1769,11 +1809,17 @@ final class MenuBarModel {
     isRefreshing = false
   }
 
+  func retryApplications(for deviceID: SimulatorID) {
+    applicationCacheByDevice.removeValue(forKey: deviceID)
+    refresh()
+  }
+
   func openDataContainer(
     for application: SimulatorApplication,
     deviceID: SimulatorID
   ) {
     folderTask?.cancel()
+    clearActionError()
     folderTask = Task { [weak self] in
       guard let self else { return }
       do {
@@ -1783,23 +1829,88 @@ final class MenuBarModel {
         )
         guard !Task.isCancelled else { return }
         guard let folderURL else {
+          actionError = "找不到 \(application.displayName) 的数据目录"
+          didChange?()
           NSSound.beep()
           return
         }
-        NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+        FinderFolderOpener.open(folderURL)
+        actionError = nil
+        folderTask = nil
       } catch is CancellationError {
         return
       } catch {
+        actionError = "无法打开 \(application.displayName) 的数据目录"
+        didChange?()
         NSSound.beep()
       }
     }
   }
 
-  private static func applicationIcon(for application: SimulatorApplication) -> NSImage? {
+  func showSimulator(_ deviceID: SimulatorID, name: String) {
+    deviceActionTask?.cancel()
+    clearActionError()
+    deviceActionTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await workspace.showSimulator(deviceID)
+        guard !Task.isCancelled else { return }
+        actionError = nil
+        deviceActionTask = nil
+      } catch is CancellationError {
+        return
+      } catch {
+        actionError = "无法显示 \(name)"
+        didChange?()
+        NSSound.beep()
+      }
+    }
+  }
+
+  private func clearActionError() {
+    guard actionError != nil else { return }
+    actionError = nil
+    didChange?()
+  }
+
+  private static func applicationSort(
+    _ lhs: MenuBarApplicationItem,
+    _ rhs: MenuBarApplicationItem
+  ) -> Bool {
+    let lhsBytes = lhs.memory?.bytes ?? -1
+    let rhsBytes = rhs.memory?.bytes ?? -1
+    if lhsBytes != rhsBytes {
+      return lhsBytes > rhsBytes
+    }
+    return
+      lhs.application.displayName.localizedStandardCompare(
+        rhs.application.displayName
+      ) == .orderedAscending
+  }
+
+  private func applicationIcon(for application: SimulatorApplication) -> NSImage? {
     guard let bundleURL = application.bundleURL else { return nil }
-    let source = NSWorkspace.shared.icon(forFile: bundleURL.path)
+    let cacheKey = bundleURL.standardizedFileURL
+    if let cached = applicationIconCache[cacheKey] {
+      return cached
+    }
+    let source = NSWorkspace.shared.icon(forFile: cacheKey.path)
     guard source.isValid, let icon = source.copy() as? NSImage else { return nil }
     icon.size = NSSize(width: 18, height: 18)
+    applicationIconCache[cacheKey] = icon
     return icon
+  }
+}
+
+@MainActor
+private enum FinderFolderOpener {
+  static func open(_ folderURL: URL) {
+    if !NSWorkspace.shared.open(folderURL) {
+      NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+    }
+    NSRunningApplication
+      .runningApplications(withBundleIdentifier: "com.apple.finder")
+      .first?
+      .activate(options: [.activateAllWindows])
   }
 }
