@@ -151,7 +151,8 @@ final class AppModel {
         && $0.schemaVersion == 1
         && $0.opaquePayload == nil
         && $0.baselineCapturedAt != nil
-        && ($0.pendingChange != nil || $0.appliedChanges.contains(where: \.succeeded))
+        && (!$0.pendingServiceChanges.isEmpty
+          || $0.appliedChanges.contains(where: \.succeeded))
     }
   }
 

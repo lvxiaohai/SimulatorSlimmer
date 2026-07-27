@@ -404,6 +404,7 @@ actor DiagnosticsExporter {
         baselineCapturedAt: receipt.baselineCapturedAt,
         baselineDisabledLabels: receipt.baselineDisabledLabels,
         pendingChange: receipt.pendingChange,
+        pendingChanges: receipt.pendingChanges,
         appliedChanges: redactedChanges,
         memoryBefore: receipt.memoryBefore,
         memoryAfter: receipt.memoryAfter,

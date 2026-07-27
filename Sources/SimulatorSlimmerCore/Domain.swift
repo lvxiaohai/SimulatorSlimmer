@@ -879,6 +879,7 @@ public struct OperationReceipt: Codable, Sendable, Identifiable {
   public var baselineCapturedAt: Date?
   public var baselineDisabledLabels: Set<String>
   public var pendingChange: ServiceChange?
+  public var pendingChanges: [ServiceChange]?
   public var appliedChanges: [AppliedChange]
   public var memoryBefore: MemorySnapshot?
   public var memoryAfter: MemorySnapshot?
@@ -909,6 +910,7 @@ public struct OperationReceipt: Codable, Sendable, Identifiable {
     baselineCapturedAt: Date? = nil,
     baselineDisabledLabels: Set<String> = [],
     pendingChange: ServiceChange? = nil,
+    pendingChanges: [ServiceChange]? = nil,
     appliedChanges: [AppliedChange] = [],
     memoryBefore: MemorySnapshot? = nil,
     memoryAfter: MemorySnapshot? = nil,
@@ -938,6 +940,7 @@ public struct OperationReceipt: Codable, Sendable, Identifiable {
     self.baselineCapturedAt = baselineCapturedAt
     self.baselineDisabledLabels = baselineDisabledLabels
     self.pendingChange = pendingChange
+    self.pendingChanges = pendingChanges
     self.appliedChanges = appliedChanges
     self.memoryBefore = memoryBefore
     self.memoryAfter = memoryAfter
@@ -948,6 +951,14 @@ public struct OperationReceipt: Codable, Sendable, Identifiable {
     self.clonedDeviceID = clonedDeviceID
     self.messages = messages
     self.opaquePayload = opaquePayload
+  }
+
+  public var pendingServiceChanges: [ServiceChange] {
+    var changes = pendingChanges ?? []
+    if let pendingChange, !changes.contains(where: { $0.label == pendingChange.label }) {
+      changes.append(pendingChange)
+    }
+    return changes
   }
 }
 

@@ -11,6 +11,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
   private let catalogLoadError: String?
   private let memoryStabilizationDelay: Duration
   private let serviceMutationConfirmationLifetime: Duration
+  private static let serviceMutationConcurrency = 4
   private var serviceMutationConfirmations:
     [ServiceMutationConfirmationKey: ServiceMutationConfirmation] = [:]
   private var previewGenerationByDevice: [SimulatorID: UInt64] = [:]
@@ -66,7 +67,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     let (resolvedInventory, resolvedReceipts) = try await (inventory, receipts)
     let pending = resolvedReceipts.filter {
       guard $0.schemaVersion == 1 else { return false }
-      if $0.pendingChange != nil { return true }
+      if !$0.pendingServiceChanges.isEmpty { return true }
       if $0.pendingStorageCleanupPath != nil { return true }
       if $0.pendingDeviceAction != nil { return true }
       if $0.status == .prepared || $0.status == .running { return true }
@@ -351,9 +352,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
         throw SimulatorWorkspaceError.invalidOperation("该恢复数据不能用于当前设备继续验证")
       }
       var changes = source.appliedChanges.filter(\.succeeded).map(\.change)
-      if let pendingChange = source.pendingChange,
-        !changes.contains(where: { $0.label == pendingChange.label })
-      {
+      for pendingChange in source.pendingServiceChanges
+      where !changes.contains(where: { $0.label == pendingChange.label }) {
         changes.append(pendingChange)
       }
       return OperationPreview(
@@ -403,7 +403,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       }
       let touchedLabels = Set(
         source.appliedChanges.filter(\.succeeded).map { $0.change.label }
-      ).union(source.pendingChange.map { [$0.label] } ?? [])
+      ).union(source.pendingServiceChanges.map(\.label))
       let applicableLabels = Set(
         catalog.applicableServices(runtimeVersion: context.runtimeVersion).map(\.label)
       )
@@ -886,7 +886,10 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
   private func shouldRestoreInterruptedSourcePowerState(
     _ source: OperationReceipt
   ) -> Bool {
-    if source.pendingChange != nil || source.status == .prepared || source.status == .running {
+    if !source.pendingServiceChanges.isEmpty
+      || source.status == .prepared
+      || source.status == .running
+    {
       return true
     }
     return source.messages.contains { $0.contains(ReceiptStore.interruptionMarker) }
@@ -926,9 +929,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     var touchedLabels = Set(
       source.appliedChanges.filter(\.succeeded).map { $0.change.label }
     )
-    if let pendingChange = source.pendingChange {
-      touchedLabels.insert(pendingChange.label)
-    }
+    touchedLabels.formUnion(source.pendingServiceChanges.map(\.label))
     var changes: [ServiceChange] = []
 
     for label in touchedLabels.sorted() {
@@ -966,9 +967,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     var touchedLabels = Set(
       source.appliedChanges.filter(\.succeeded).map { $0.change.label }
     )
-    if let pendingChange = source.pendingChange {
-      touchedLabels.insert(pendingChange.label)
-    }
+    touchedLabels.formUnion(source.pendingServiceChanges.map(\.label))
     return source.baselineDisabledLabels
       .intersection(touchedLabels)
       .intersection(protectedLabels)
@@ -1275,7 +1274,7 @@ extension SimulatorWorkspace {
         if cancelled {
           receipt.status = .cancelled
           receipt.messages.append("用户取消了操作；已完成的步骤不会被伪装成回滚")
-        } else if receipt.pendingChange != nil
+        } else if !receipt.pendingServiceChanges.isEmpty
           || !receipt.appliedChanges.isEmpty
           || operation.kind == .cleanStorage
           || operation.kind == .erase
@@ -1388,15 +1387,16 @@ extension SimulatorWorkspace {
         : "已生成 \(plan.changes.count) 项允许列表差异",
       totalCount: plan.changes.count
     )
-    let succeeded = try await applyServiceChanges(
+    let applicationResult = try await applyServiceChanges(
       plan.changes,
+      presentLabels: presentLabels,
       receipt: &receipt,
       continuation: continuation
     )
     try await restartAndVerify(
-      succeeded,
+      applicationResult.attempted,
       expectedDisabledLabels: plan.desiredDisabledLabels,
-      verificationLabels: Set(succeeded.map(\.label)),
+      verificationLabels: Set(applicationResult.succeeded.map(\.label)),
       receipt: &receipt,
       continuation: continuation
     )
@@ -1505,15 +1505,16 @@ extension SimulatorWorkspace {
         : "将恢复上次操作实际触及的 \(changes.count) 项服务",
       totalCount: changes.count
     )
-    let succeeded = try await applyServiceChanges(
+    let applicationResult = try await applyServiceChanges(
       changes,
+      presentLabels: presentLabels,
       receipt: &receipt,
       continuation: continuation
     )
     try await restartAndVerify(
-      succeeded,
+      applicationResult.attempted,
       expectedDisabledLabels: source.baselineDisabledLabels,
-      verificationLabels: Set(succeeded.map(\.label)),
+      verificationLabels: Set(applicationResult.succeeded.map(\.label)),
       receipt: &receipt,
       continuation: continuation
     )
@@ -1552,7 +1553,7 @@ extension SimulatorWorkspace {
 
     let provisionalCount =
       source.appliedChanges.filter(\.succeeded).count
-      + (source.pendingChange == nil ? 0 : 1)
+      + source.pendingServiceChanges.count
     emit(
       continuation,
       operationID: receipt.id,
@@ -1629,17 +1630,21 @@ extension SimulatorWorkspace {
     in source: inout OperationReceipt,
     disabledLabels: Set<String>
   ) async throws {
-    guard let pendingChange = source.pendingChange else { return }
-    let isDisabled = disabledLabels.contains(pendingChange.label)
-    let reachedTarget = pendingChange.transition == .disable ? isDisabled : !isDisabled
-    source.appliedChanges.append(
-      AppliedChange(
-        change: pendingChange,
-        succeeded: reachedTarget,
-        errorMessage: reachedTarget ? "中断后只读复核确认已生效" : "中断后只读复核确认未生效"
+    let pendingChanges = source.pendingServiceChanges
+    guard !pendingChanges.isEmpty else { return }
+    for pendingChange in pendingChanges {
+      let isDisabled = disabledLabels.contains(pendingChange.label)
+      let reachedTarget = pendingChange.transition == .disable ? isDisabled : !isDisabled
+      source.appliedChanges.append(
+        AppliedChange(
+          change: pendingChange,
+          succeeded: reachedTarget,
+          errorMessage: reachedTarget ? "中断后只读复核确认已生效" : "中断后只读复核确认未生效"
+        )
       )
-    )
+    }
     source.pendingChange = nil
+    source.pendingChanges = nil
     try await receiptStore.save(source)
   }
 
@@ -1864,178 +1869,163 @@ extension SimulatorWorkspace {
 
   private func applyServiceChanges(
     _ changes: [ServiceChange],
+    presentLabels: Set<String>,
     receipt: inout OperationReceipt,
     continuation: AsyncThrowingStream<OperationEvent, Error>.Continuation
-  ) async throws -> [ServiceChange] {
+  ) async throws -> ServiceApplicationResult {
+    var attempted: [ServiceChange] = []
     var succeeded: [ServiceChange] = []
-    for (index, change) in changes.enumerated() {
+    for batchStart in stride(
+      from: 0,
+      to: changes.count,
+      by: Self.serviceMutationConcurrency
+    ) {
       try Task.checkCancellation()
-      let stillPresent: Bool
-      if change.transition == .enable {
-        // 禁用后的 job 通常不再加载；目录与回执共同约束了标签，enable 是幂等恢复。
-        stillPresent = true
-      } else {
-        do {
-          stillPresent = try await simulator.presentServiceLabels(
-            [change.label],
-            for: receipt.deviceID
-          ).contains(change.label)
-        } catch {
-          try Task.checkCancellation()
-          receipt.appliedChanges.append(
-            AppliedChange(
-              change: change,
-              succeeded: false,
-              errorMessage: "读取服务状态失败，已跳过：\(error.localizedDescription)"
-            )
-          )
-          try await receiptStore.save(receipt)
-          emit(
-            continuation,
-            operationID: receipt.id,
-            deviceID: receipt.deviceID,
-            phase: .applying,
-            state: .warning,
-            message: "\(change.serviceName) 状态读取失败，已跳过",
-            completedCount: index + 1,
-            totalCount: changes.count
-          )
-          continue
-        }
+      let batchEnd = min(
+        batchStart + Self.serviceMutationConcurrency,
+        changes.count
+      )
+      let indexedBatch = changes[batchStart..<batchEnd].enumerated().map {
+        IndexedServiceChange(index: batchStart + $0.offset, change: $0.element)
       }
-      guard stillPresent else {
-        receipt.appliedChanges.append(
-          AppliedChange(
-            change: change,
+      let executableChanges = indexedBatch.filter {
+        $0.change.transition == .enable || presentLabels.contains($0.change.label)
+      }
+      var outcomes: [Int: ServiceChangeOutcome] = [:]
+
+      for item in indexedBatch
+      where !executableChanges.contains(where: { $0.index == item.index }) {
+        outcomes[item.index] = ServiceChangeOutcome(
+          appliedChange: AppliedChange(
+            change: item.change,
             succeeded: false,
             errorMessage: "服务在执行前已不存在，未修改"
-          )
+          ),
+          eventState: .warning,
+          eventMessage: "\(item.change.serviceName) 在当前系统运行时中已不存在，已跳过"
         )
+      }
+
+      if !executableChanges.isEmpty {
+        receipt.pendingChange = nil
+        receipt.pendingChanges = executableChanges.map(\.change)
         try await receiptStore.save(receipt)
-        emit(
-          continuation,
-          operationID: receipt.id,
-          deviceID: receipt.deviceID,
-          phase: .applying,
-          state: .warning,
-          message: "\(change.serviceName) 在当前系统运行时中已不存在，已跳过",
-          completedCount: index + 1,
-          totalCount: changes.count
-        )
-        continue
+        attempted.append(contentsOf: executableChanges.map(\.change))
+
+        let simulator = self.simulator
+        let deviceID = receipt.deviceID
+        let commandTasks = executableChanges.map { item in
+          Task.detached(priority: .userInitiated) {
+            do {
+              try await simulator.setService(
+                item.change.label,
+                transition: item.change.transition,
+                deviceID: deviceID
+              )
+              return ServiceCommandResult(item: item, errorMessage: nil)
+            } catch {
+              return ServiceCommandResult(
+                item: item,
+                errorMessage: error.localizedDescription
+              )
+            }
+          }
+        }
+
+        var commandResults: [ServiceCommandResult] = []
+        commandResults.reserveCapacity(commandTasks.count)
+        for task in commandTasks {
+          commandResults.append(await task.value)
+        }
+
+        let stateResult = await Task.detached(priority: .userInitiated) {
+          do {
+            return ServiceStateReadResult(
+              disabledLabels: try await simulator.disabledLabels(for: deviceID),
+              errorMessage: nil
+            )
+          } catch {
+            return ServiceStateReadResult(
+              disabledLabels: nil,
+              errorMessage: error.localizedDescription
+            )
+          }
+        }.value
+
+        for result in commandResults {
+          let change = result.item.change
+          if let disabledLabels = stateResult.disabledLabels {
+            let observedDisabled = disabledLabels.contains(change.label)
+            let targetIsDisabled = change.transition == .disable
+            if observedDisabled == targetIsDisabled {
+              outcomes[result.item.index] = ServiceChangeOutcome(
+                appliedChange: AppliedChange(
+                  change: change,
+                  succeeded: true,
+                  errorMessage: result.errorMessage
+                ),
+                eventState: result.errorMessage == nil ? .succeeded : .warning,
+                eventMessage: result.errorMessage == nil
+                  ? "已\(targetIsDisabled ? "停用" : "启用") \(change.serviceName)"
+                  : "\(change.serviceName) 命令报错，但状态复核确认已生效"
+              )
+            } else {
+              let observedState = observedDisabled ? "停用" : "启用"
+              outcomes[result.item.index] = ServiceChangeOutcome(
+                appliedChange: AppliedChange(
+                  change: change,
+                  succeeded: false,
+                  errorMessage: result.errorMessage
+                    ?? "状态复核不一致，当前仍为\(observedState)"
+                ),
+                eventState: .warning,
+                eventMessage: "\(change.serviceName) 修改未生效，已跳过"
+              )
+            }
+          } else {
+            let errorMessage =
+              "命令错误：\(result.errorMessage ?? "无")；复核错误：\(stateResult.errorMessage ?? "无")"
+            outcomes[result.item.index] = ServiceChangeOutcome(
+              appliedChange: AppliedChange(
+                change: change,
+                succeeded: false,
+                errorMessage: "结果无法确认，已跳过：\(errorMessage)"
+              ),
+              eventState: .warning,
+              eventMessage: "\(change.serviceName) 结果无法确认，已跳过"
+            )
+            receipt.messages.append(
+              "服务变更结果无法确认，已跳过：\(change.label)；\(errorMessage)"
+            )
+          }
+        }
+        receipt.pendingChanges = nil
       }
 
-      receipt.pendingChange = change
-      try await receiptStore.save(receipt)
-
-      let simulator = self.simulator
-      let deviceID = receipt.deviceID
-      let result = await Task.detached(priority: .userInitiated) {
-        var commandError: String?
-        do {
-          try await simulator.setService(
-            change.label,
-            transition: change.transition,
-            deviceID: deviceID
-          )
-        } catch {
-          commandError = error.localizedDescription
+      for item in indexedBatch {
+        guard let outcome = outcomes[item.index] else { continue }
+        receipt.appliedChanges.append(outcome.appliedChange)
+        if outcome.appliedChange.succeeded {
+          succeeded.append(item.change)
         }
-        do {
-          let disabled = try await simulator.disabledLabels(for: deviceID)
-          return AtomicServiceChangeResult(
-            commandError: commandError,
-            observedDisabled: disabled.contains(change.label),
-            observationError: nil
-          )
-        } catch {
-          return AtomicServiceChangeResult(
-            commandError: commandError,
-            observedDisabled: nil,
-            observationError: error.localizedDescription
-          )
-        }
-      }.value
-
-      let targetIsDisabled = change.transition == .disable
-      let reachedTarget = result.observedDisabled == targetIsDisabled
-
-      if reachedTarget {
-        receipt.appliedChanges.append(
-          AppliedChange(
-            change: change,
-            succeeded: true,
-            errorMessage: result.commandError
-          )
-        )
-        receipt.pendingChange = nil
-        succeeded.append(change)
         emit(
           continuation,
           operationID: receipt.id,
           deviceID: receipt.deviceID,
           phase: .applying,
-          state: result.commandError == nil ? .succeeded : .warning,
-          message: result.commandError == nil
-            ? "已\(change.transition == .disable ? "停用" : "启用") \(change.serviceName)"
-            : "\(change.serviceName) 命令报错，但状态复核确认已生效",
-          completedCount: index + 1,
-          totalCount: changes.count
-        )
-      } else if let observedDisabled = result.observedDisabled {
-        let observedState = observedDisabled ? "停用" : "启用"
-        let errorMessage =
-          result.commandError
-          ?? "状态复核不一致，当前仍为\(observedState)"
-        receipt.appliedChanges.append(
-          AppliedChange(
-            change: change,
-            succeeded: false,
-            errorMessage: errorMessage
-          )
-        )
-        receipt.pendingChange = nil
-        emit(
-          continuation,
-          operationID: receipt.id,
-          deviceID: receipt.deviceID,
-          phase: .applying,
-          state: .warning,
-          message: "\(change.serviceName) 修改未生效，已跳过",
-          completedCount: index + 1,
-          totalCount: changes.count
-        )
-      } else {
-        let errorMessage =
-          "命令错误：\(result.commandError ?? "无")；复核错误：\(result.observationError ?? "无")"
-        receipt.appliedChanges.append(
-          AppliedChange(
-            change: change,
-            succeeded: false,
-            errorMessage: "结果无法确认，已跳过：\(errorMessage)"
-          )
-        )
-        receipt.pendingChange = nil
-        receipt.messages.append(
-          "服务变更结果无法确认，已跳过：\(change.label)；\(errorMessage)"
-        )
-        emit(
-          continuation,
-          operationID: receipt.id,
-          deviceID: receipt.deviceID,
-          phase: .applying,
-          state: .warning,
-          message: "\(change.serviceName) 结果无法确认，已跳过",
-          completedCount: index + 1,
+          state: outcome.eventState,
+          message: outcome.eventMessage,
+          completedCount: item.index + 1,
           totalCount: changes.count
         )
       }
-      // 每项结果都立即原子写回，避免崩溃后丢失部分状态。
+
+      // 每批结果都立即原子写回，崩溃时由 pendingChanges 恢复整批状态。
       try await receiptStore.save(receipt)
-      // 用户取消只在当前 launchctl 原子步骤和回执写入完成后生效。
+      // 用户取消只在当前批次的命令、状态复核和回执写入完成后生效。
       try Task.checkCancellation()
     }
-    return succeeded
+    return ServiceApplicationResult(attempted: attempted, succeeded: succeeded)
   }
 
   private func restartAndVerify(
@@ -2283,8 +2273,28 @@ extension SimulatorWorkspace {
   }
 }
 
-private struct AtomicServiceChangeResult: Sendable {
-  let commandError: String?
-  let observedDisabled: Bool?
-  let observationError: String?
+private struct ServiceApplicationResult: Sendable {
+  let attempted: [ServiceChange]
+  let succeeded: [ServiceChange]
+}
+
+private struct IndexedServiceChange: Sendable {
+  let index: Int
+  let change: ServiceChange
+}
+
+private struct ServiceCommandResult: Sendable {
+  let item: IndexedServiceChange
+  let errorMessage: String?
+}
+
+private struct ServiceStateReadResult: Sendable {
+  let disabledLabels: Set<String>?
+  let errorMessage: String?
+}
+
+private struct ServiceChangeOutcome: Sendable {
+  let appliedChange: AppliedChange
+  let eventState: OperationEventState
+  let eventMessage: String
 }

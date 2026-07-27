@@ -753,6 +753,60 @@ struct SimulatorWorkspaceBehaviorTests {
     #expect(await simulator.disabledServiceLabels() == [service.label])
   }
 
+  @Test("中断批次中的多项服务可逐项恢复状态")
+  func interruptedServiceBatchCanBeResolvedItemByItem() async throws {
+    let alpha = makeWorkspaceService(id: "pending-alpha", label: "com.test.pending.alpha")
+    let beta = makeWorkspaceService(id: "pending-beta", label: "com.test.pending.beta")
+    let device = makeWorkspaceDevice(
+      id: "56565656-6767-4787-8989-ABABABABABAB",
+      state: .booted
+    )
+    let simulator = WorkspaceSimulatorSpy(
+      device: device,
+      disabledLabels: [alpha.label]
+    )
+    let sourceReceipt = OperationReceipt(
+      kind: .optimize,
+      deviceID: device.id,
+      deviceName: device.name,
+      status: .partial,
+      originalDeviceState: .booted,
+      pendingChanges: [
+        serviceChange(for: alpha, transition: .disable),
+        serviceChange(for: beta, transition: .disable),
+      ]
+    )
+    let receiptStore = WorkspaceReceiptStoreSpy(seed: [sourceReceipt])
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: receiptStore,
+      services: [alpha, beta]
+    )
+
+    let preview = try await workspace.preview(
+      .verify(deviceID: device.id, receiptID: sourceReceipt.id)
+    )
+    #expect(Set(preview.serviceChanges.map(\.label)) == [alpha.label, beta.label])
+
+    _ = try await collect(
+      await workspace.perform(
+        .verify(deviceID: device.id, receiptID: sourceReceipt.id)
+      )
+    )
+
+    let overview = try await workspace.overview()
+    let resolved = try #require(
+      overview.recentReceipts.first { $0.id == sourceReceipt.id }
+    )
+    #expect(resolved.pendingServiceChanges.isEmpty)
+    #expect(
+      resolved.appliedChanges.first { $0.change.label == alpha.label }?.succeeded == true
+    )
+    #expect(
+      resolved.appliedChanges.first { $0.change.label == beta.label }?.succeeded == false
+    )
+  }
+
   @Test("中断回执保持待处理直到继续验证完成")
   func interruptedReceiptRemainsPendingUntilResolved() async throws {
     let device = makeWorkspaceDevice(
@@ -794,10 +848,11 @@ struct SimulatorWorkspaceBehaviorTests {
     )
   }
 
-  @Test("取消会等待当前服务步骤落盘再停止后续变更")
-  func cancellationStopsAfterAtomicServiceStep() async throws {
-    let alpha = makeWorkspaceService(id: "cancel-alpha", label: "com.test.cancel.alpha")
-    let beta = makeWorkspaceService(id: "cancel-beta", label: "com.test.cancel.beta")
+  @Test("取消会等待当前服务批次落盘再停止后续变更")
+  func cancellationStopsAfterAtomicServiceBatch() async throws {
+    let services = (0..<6).map {
+      makeWorkspaceService(id: "cancel-\($0)", label: "com.test.cancel.\($0)")
+    }
     let simulator = WorkspaceSimulatorSpy(
       device: makeWorkspaceDevice(
         id: "77777777-8888-4999-8AAA-BBBBBBBBBBBB",
@@ -809,7 +864,7 @@ struct SimulatorWorkspaceBehaviorTests {
     let workspace = makeWorkspace(
       simulator: simulator,
       receiptStore: receiptStore,
-      services: [alpha, beta]
+      services: services
     )
     let operation = SimulatorOperation.optimize(
       deviceID: await simulator.deviceID,
@@ -837,11 +892,43 @@ struct SimulatorWorkspaceBehaviorTests {
     }
 
     let receipt = try #require(finalReceipt)
-    #expect(receipt.appliedChanges.count == 1)
-    #expect(receipt.appliedChanges.first?.change.label == alpha.label)
-    #expect(receipt.appliedChanges.first?.succeeded == true)
-    #expect(await simulator.serviceCommands().count == 1)
-    #expect(await simulator.disabledServiceLabels() == [alpha.label])
+    let firstBatchLabels = Set(services.prefix(4).map(\.label))
+    #expect(receipt.appliedChanges.count == 4)
+    #expect(receipt.appliedChanges.allSatisfy { $0.succeeded })
+    #expect(receipt.pendingServiceChanges.isEmpty)
+    #expect(await simulator.serviceCommands().count == 4)
+    #expect(await simulator.disabledServiceLabels() == firstBatchLabels)
+  }
+
+  @Test("服务变更固定为最多四路并发")
+  func serviceChangesUseBoundedConcurrency() async throws {
+    let services = (0..<10).map {
+      makeWorkspaceService(id: "parallel-\($0)", label: "com.test.parallel.\($0)")
+    }
+    let simulator = WorkspaceSimulatorSpy(
+      device: makeWorkspaceDevice(
+        id: "78787878-8989-4A9A-8B8B-CDCDCDCDCDCD",
+        state: .booted
+      ),
+      serviceDelay: .milliseconds(40)
+    )
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(),
+      services: services
+    )
+    let operation = SimulatorOperation.optimize(
+      deviceID: await simulator.deviceID,
+      profile: .recommended,
+      customDisabledLabels: []
+    )
+
+    let events = try await confirmedCollect(operation, using: workspace)
+
+    #expect(events.last?.receipt?.status == .succeeded)
+    #expect(await simulator.maximumConcurrentServiceCommands() == 4)
+    #expect(await simulator.serviceCommands().count == services.count)
+    #expect(await simulator.servicePresenceProbeCount() == 1)
   }
 
   @Test("服务命令与复核均失败时记录并跳过")
@@ -1620,6 +1707,8 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
   private let serviceToEnableOnRestart: String?
   private var commands: [String] = []
   private var recordedServiceCommands: [RecordedServiceCommand] = []
+  private var activeServiceCommandCount = 0
+  private var maximumActiveServiceCommandCount = 0
   private var presenceProbeCount = 0
   private let firstInventoryDelay: Duration?
   private var inventoryCallCount = 0
@@ -1707,6 +1796,12 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
     transition: ServiceTransition,
     deviceID: SimulatorID
   ) async throws {
+    activeServiceCommandCount += 1
+    maximumActiveServiceCommandCount = max(
+      maximumActiveServiceCommandCount,
+      activeServiceCommandCount
+    )
+    defer { activeServiceCommandCount -= 1 }
     commands.append("service")
     recordedServiceCommands.append(
       RecordedServiceCommand(label: label, transition: transition.rawValue)
@@ -1759,6 +1854,10 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
 
   func serviceCommands() -> [RecordedServiceCommand] {
     recordedServiceCommands
+  }
+
+  func maximumConcurrentServiceCommands() -> Int {
+    maximumActiveServiceCommandCount
   }
 
   func disabledServiceLabels() -> Set<String> { disabledLabels }

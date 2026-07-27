@@ -38,6 +38,45 @@ struct ReceiptStoreBehaviorTests {
     }
   }
 
+  @Test("并发服务批次可完整保存并读回")
+  func pendingServiceBatchRoundTrip() async throws {
+    try await withTemporaryDirectory { directory in
+      let store = ReceiptStore(directoryURL: directory)
+      let pendingChanges = [
+        ServiceChange(
+          label: "com.test.pending.alpha",
+          serviceName: "测试服务 Alpha",
+          categoryID: "test",
+          risk: .low,
+          transition: .disable
+        ),
+        ServiceChange(
+          label: "com.test.pending.beta",
+          serviceName: "测试服务 Beta",
+          categoryID: "test",
+          risk: .moderate,
+          transition: .enable
+        ),
+      ]
+      let receipt = OperationReceipt(
+        kind: .optimize,
+        deviceID: SimulatorID(
+          rawValue: "11111111-2222-4333-8444-555555555555"
+        ),
+        deviceName: "测试设备",
+        status: .running,
+        originalDeviceState: .booted,
+        pendingChanges: pendingChanges
+      )
+
+      try await store.save(receipt)
+      let loaded = try await store.receipt(id: receipt.id)
+
+      #expect(loaded.pendingChange == nil)
+      #expect(loaded.pendingServiceChanges == pendingChanges)
+    }
+  }
+
   @Test("启动时把准备中和运行中回执标记为部分完成")
   func interruptedReceiptsBecomePartial() async throws {
     try await withTemporaryDirectory { directory in
