@@ -10,42 +10,42 @@
       "name": "小组件、壁纸与实时活动",
       "summary": "负责墙纸、小组件时间线和实时活动的后台更新。",
       "symbol": "rectangle.3.group",
-      "approximateIdleMemoryMB": 675
+      "approximateIdleMemoryMB": 500
     },
     {
       "id": "siri",
       "name": "Siri 与智能计算",
       "summary": "提供语音交互、内容建议以及设备端模型调度。",
       "symbol": "waveform.and.mic",
-      "approximateIdleMemoryMB": 265
+      "approximateIdleMemoryMB": 210
     },
     {
       "id": "search",
       "name": "本机搜索",
       "summary": "构建并查询设备内的 Spotlight 与系统搜索索引。",
       "symbol": "magnifyingglass",
-      "approximateIdleMemoryMB": 50
+      "approximateIdleMemoryMB": 45
     },
     {
       "id": "icloud",
       "name": "Apple 账户与 iCloud",
       "summary": "连接 Apple 账户、iCloud 数据和受信任设备状态。",
       "symbol": "icloud",
-      "approximateIdleMemoryMB": 100
+      "approximateIdleMemoryMB": 90
     },
     {
       "id": "store",
       "name": "App Store、推送与媒体",
       "summary": "支持 App Store、StoreKit、远程通知和媒体服务。",
       "symbol": "shippingbox",
-      "approximateIdleMemoryMB": 80
+      "approximateIdleMemoryMB": 50
     },
     {
       "id": "pim",
       "name": "邮件、日历与联系人",
       "summary": "维护邮件、日历、提醒事项和联系人数据访问。",
       "symbol": "person.crop.circle",
-      "approximateIdleMemoryMB": 80
+      "approximateIdleMemoryMB": 85
     },
     {
       "id": "web",
@@ -66,49 +66,49 @@
       "name": "健康、智能家居与健身",
       "summary": "承载 HealthKit、HomeKit 和健身数据相关后台任务。",
       "symbol": "heart.text.square",
-      "approximateIdleMemoryMB": 135
+      "approximateIdleMemoryMB": 100
     },
     {
       "id": "photos",
       "name": "照片与媒体资料库",
       "summary": "整理照片资源并在后台执行人物与内容分析。",
       "symbol": "photo.on.rectangle.angled",
-      "approximateIdleMemoryMB": 60
+      "approximateIdleMemoryMB": 65
     },
     {
       "id": "apps",
       "name": "新闻、天气、地图与游戏",
       "summary": "更新新闻、天气、地图和游戏相关系统内容。",
       "symbol": "newspaper",
-      "approximateIdleMemoryMB": 90
+      "approximateIdleMemoryMB": 80
     },
     {
       "id": "messaging",
       "name": "信息与 FaceTime",
       "summary": "维护 iMessage、FaceTime、系统通话和身份服务。",
       "symbol": "message",
-      "approximateIdleMemoryMB": 60
+      "approximateIdleMemoryMB": 65
     },
     {
       "id": "connectivity",
       "name": "共享与设备连接",
       "summary": "支持 AirDrop、接力、CarPlay、Apple Watch 和查找。",
       "symbol": "antenna.radiowaves.left.and.right",
-      "approximateIdleMemoryMB": 65
+      "approximateIdleMemoryMB": 70
     },
     {
       "id": "telemetry",
       "name": "广告、诊断与遥测",
       "summary": "处理设备校验、诊断、反馈、广告度量和实验配置。",
       "symbol": "stethoscope",
-      "approximateIdleMemoryMB": 105
+      "approximateIdleMemoryMB": 100
     },
     {
       "id": "other",
       "name": "其他后台服务",
       "summary": "涵盖钱包、企业配置、资源下载和其他系统后台能力。",
       "symbol": "gearshape.2",
-      "approximateIdleMemoryMB": 195
+      "approximateIdleMemoryMB": 200
     }
   ],
   "services": [

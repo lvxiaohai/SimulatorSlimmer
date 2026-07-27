@@ -21,21 +21,21 @@ struct ServiceCatalogContractTests {
           category.approximateIdleMemoryMB.map { (category.id, $0) }
         }
       ) == [
-        "widgets": 675,
-        "siri": 265,
-        "search": 50,
-        "icloud": 100,
-        "store": 80,
-        "pim": 80,
+        "widgets": 500,
+        "siri": 210,
+        "search": 45,
+        "icloud": 90,
+        "store": 50,
+        "pim": 85,
         "web": 50,
         "family": 65,
-        "health": 135,
-        "photos": 60,
-        "apps": 90,
-        "messaging": 60,
-        "connectivity": 65,
-        "telemetry": 105,
-        "other": 195,
+        "health": 100,
+        "photos": 65,
+        "apps": 80,
+        "messaging": 65,
+        "connectivity": 70,
+        "telemetry": 100,
+        "other": 200,
       ]
     )
     #expect(catalog.services.allSatisfy { containsHanCharacter($0.name) })
