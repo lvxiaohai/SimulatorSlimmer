@@ -18,6 +18,7 @@ enum WorkspaceFactory {
   private actor ScriptedSimulatorWorkspace: SimulatorWorkspaceClient {
     private let mode: Mode
     private let phaseDelay: Duration
+    private let serviceStepDelay: Duration
     private let runtime: SimulatorRuntime
     private var phone: SimulatorDevice
     private var tablet: SimulatorDevice
@@ -40,6 +41,10 @@ enum WorkspaceFactory {
         arguments.contains("--ui-testing-slow-progress")
         ? .seconds(2)
         : .milliseconds(180)
+      serviceStepDelay =
+        arguments.contains("--ui-testing-slow-progress")
+        ? .milliseconds(700)
+        : .milliseconds(60)
 
       if arguments.contains("--ui-testing-empty") {
         mode = .empty
@@ -324,7 +329,7 @@ enum WorkspaceFactory {
           operation: operation,
           title: profile == .enableAllServices ? "启用全部服务" : "优化计划",
           summary: profile == .enableAllServices
-            ? "启用本应用管理的服务；其他禁用项保持不变。"
+            ? "启用本应用可管理的服务；服务目录外的停用项保持不变。"
             : "仅修改预览中列出的模拟器后台服务；完成后会重新读取状态并保存恢复基线。",
           serviceChanges: changes,
           warnings: profile == .extreme ? ["极致方案会停用全部可精简服务。"] : []
@@ -369,6 +374,8 @@ enum WorkspaceFactory {
       let operationID = ReceiptID()
       let phases = Self.phases(for: operation.kind)
       let phaseDelay = phaseDelay
+      let serviceStepDelay = serviceStepDelay
+      let serviceChanges = plannedServiceChanges(for: operation)
       return AsyncThrowingStream { continuation in
         let task = Task { [weak self] in
           do {
@@ -382,10 +389,66 @@ enum WorkspaceFactory {
                   phase: phase,
                   state: index == phases.count - 1 ? .succeeded : .running,
                   message: phase.localizedDebugMessage,
-                  completedCount: phase == .applying ? min(18, index * 9) : nil,
-                  totalCount: phase == .applying ? 18 : nil
+                  completedCount:
+                    phase == .applying && serviceChanges.isEmpty
+                    ? min(18, index * 9)
+                    : nil,
+                  totalCount:
+                    phase == .applying && serviceChanges.isEmpty
+                    ? 18
+                    : nil
                 )
               )
+              if phase == .applying, !serviceChanges.isEmpty {
+                for change in serviceChanges {
+                  continuation.yield(
+                    OperationEvent(
+                      operationID: operationID,
+                      deviceID: operation.deviceID,
+                      phase: .applying,
+                      state: .running,
+                      message: "正在处理 \(change.serviceName)",
+                      serviceProgress: ServiceChangeProgress(
+                        change: change,
+                        state: .running
+                      )
+                    )
+                  )
+                }
+                for (serviceIndex, change) in serviceChanges.enumerated() {
+                  try await Task.sleep(for: serviceStepDelay)
+                  continuation.yield(
+                    OperationEvent(
+                      operationID: operationID,
+                      deviceID: operation.deviceID,
+                      phase: .applying,
+                      state: .running,
+                      message: "已处理 \(change.serviceName)，等待状态复核",
+                      completedCount: serviceIndex + 1,
+                      totalCount: serviceChanges.count,
+                      serviceProgress: ServiceChangeProgress(
+                        change: change,
+                        state: .awaitingVerification
+                      )
+                    )
+                  )
+                }
+                for change in serviceChanges {
+                  continuation.yield(
+                    OperationEvent(
+                      operationID: operationID,
+                      deviceID: operation.deviceID,
+                      phase: .applying,
+                      state: .succeeded,
+                      message: "已完成 \(change.serviceName)",
+                      serviceProgress: ServiceChangeProgress(
+                        change: change,
+                        state: .succeeded
+                      )
+                    )
+                  )
+                }
+              }
             }
 
             guard let self else {
@@ -505,6 +568,23 @@ enum WorkspaceFactory {
       )
       receipts.insert(receipt, at: 0)
       return receipt
+    }
+
+    private func plannedServiceChanges(
+      for operation: SimulatorOperation
+    ) -> [ServiceChange] {
+      let services = serviceStates(for: operation.deviceID)
+      switch operation {
+      case .optimize(_, let profile, let customDisabledLabels):
+        return profile == .custom
+          ? Self.customChanges(
+            selectedLabels: customDisabledLabels,
+            services: services
+          )
+          : Self.changes(for: profile, services: services)
+      default:
+        return []
+      }
     }
 
     private func currentDevice(for deviceID: SimulatorID) -> SimulatorDevice? {

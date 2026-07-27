@@ -1076,11 +1076,12 @@ final class AppModel {
   }
 
   func runPreviewedOperation() {
-    guard let operation = previewPresentation?.preview.operation else { return }
+    guard let preview = previewPresentation?.preview else { return }
+    let operation = preview.operation
     if !isOptimizationFlow(operation.kind) {
       previewPresentation = nil
     }
-    perform(operation)
+    perform(operation, serviceChanges: preview.serviceChanges)
   }
 
   func toggleCustomService(_ label: String, disabled: Bool) {
@@ -1237,7 +1238,10 @@ final class AppModel {
         continue
       }
       let operation = initialPreview.operation
-      operations[device.id] = PresentedOperation(operation: operation)
+      operations[device.id] = PresentedOperation(
+        operation: operation,
+        serviceChanges: initialPreview.serviceChanges
+      )
       updateBatchItem(runID: runID, deviceID: device.id) { item in
         item.status = .running
         item.detail = L10n.formatted(
@@ -1418,7 +1422,10 @@ final class AppModel {
     }
   }
 
-  private func perform(_ operation: SimulatorOperation) {
+  private func perform(
+    _ operation: SimulatorOperation,
+    serviceChanges: [ServiceChange] = []
+  ) {
     let deviceID = operation.deviceID
     guard
       !isDeviceReservedByBatch(deviceID),
@@ -1428,7 +1435,10 @@ final class AppModel {
       return
     }
 
-    operations[deviceID] = PresentedOperation(operation: operation)
+    operations[deviceID] = PresentedOperation(
+      operation: operation,
+      serviceChanges: serviceChanges
+    )
     activeOperationDeviceIDs.insert(deviceID)
     let task = Task { [weak self] in
       guard let self else { return }
@@ -1508,7 +1518,9 @@ final class AppModel {
       L10n.text("toast.device-opened")
     case .delete:
       L10n.text("toast.device-deleted")
-    case .preflight, .optimize, .verify, .restore, .scanStorage, .cleanStorage,
+    case .optimize:
+      L10n.text("toast.optimization-completed")
+    case .preflight, .verify, .restore, .scanStorage, .cleanStorage,
       .erase, .clone:
       nil
     }

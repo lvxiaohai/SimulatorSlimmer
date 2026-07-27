@@ -36,24 +36,42 @@ private struct OperationExecutionSheet: View {
   let stop: () -> Void
 
   var body: some View {
-    ScrollView {
-      OperationProgressPanel(
-        presentation: presentation,
-        stop: stop
-      )
-      .padding(20)
-    }
-    .scrollBounceBehavior(.basedOnSize)
+    OperationProgressPanel(
+      presentation: presentation,
+      stop: stop
+    )
+    .padding(20)
     .frame(
-      minWidth: 560,
-      idealWidth: 620,
-      minHeight: 320,
-      idealHeight: 340
+      width: 620,
+      height: showsServiceChangeDetails ? 440 : 340,
+      alignment: .top
+    )
+    .animation(
+      .easeOut(duration: 0.18),
+      value: showsServiceChangeDetails
     )
     .background(Color.instrumentBackground)
     .interactiveDismissDisabled()
     .suppressInitialFocus()
     .accessibilityIdentifier("operation-execution.sheet")
+  }
+
+  private var showsServiceChangeDetails: Bool {
+    guard
+      !presentation.serviceChanges.isEmpty,
+      presentation.events.contains(where: { $0.phase == .applying })
+    else {
+      return false
+    }
+    return !presentation.events.contains {
+      switch $0.phase {
+      case .restarting, .verifying, .measuringAfter, .finalizing, .completed:
+        true
+      case .preflight, .preparing, .measuringBefore, .applying, .scanningStorage,
+        .cleaningStorage, .deviceAction:
+        false
+      }
+    }
   }
 }
 

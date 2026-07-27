@@ -538,9 +538,14 @@ struct OperationProgressPanel: View {
           VStack(alignment: .leading, spacing: 3) {
             Text(L10n.formatted("operation.running.title", operationKind.localizedTitle))
               .font(.headline)
-            Text(presentation.latestEvent?.message ?? L10n.text("operation.preparing.message"))
+            if showsDynamicMessage {
+              Text(
+                presentation.latestEvent?.message
+                  ?? L10n.text("operation.preparing.message")
+              )
               .font(.caption)
               .foregroundStyle(.secondary)
+            }
           }
 
           Spacer()
@@ -583,30 +588,73 @@ struct OperationProgressPanel: View {
     VStack(alignment: .leading, spacing: 10) {
       ForEach(phases, id: \.self) { phase in
         let state = phaseState(phase, timeline: timeline)
-        HStack(spacing: 10) {
-          Image(systemName: state.symbol)
-            .foregroundStyle(state.tint)
-            .frame(width: 18)
-          Text(phase.localizedTitle)
-            .font(.subheadline)
-            .foregroundStyle(state.isWaiting ? .secondary : .primary)
-          Spacer()
-          if let event = presentation.events.last(where: { $0.phase == phase }),
-            let completed = event.completedCount,
-            let total = event.totalCount
-          {
-            Text("\(completed) / \(total)")
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(.secondary)
-          } else {
-            Text(state.label)
-              .font(.caption)
-              .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+          HStack(spacing: 10) {
+            Image(systemName: state.symbol)
+              .foregroundStyle(state.tint)
+              .frame(width: 18)
+            Text(phase.localizedTitle)
+              .font(.subheadline)
+              .foregroundStyle(state.isWaiting ? .secondary : .primary)
+            Spacer()
+            if let event = presentation.events.last(where: { $0.phase == phase }),
+              let completed = event.completedCount,
+              let total = event.totalCount
+            {
+              Text("\(completed) / \(total)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            } else {
+              Text(state.label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+          }
+          .accessibilityElement(children: .combine)
+          .accessibilityIdentifier("operation.progress.phase.\(phase.rawValue)")
+          .accessibilityValue(state.label)
+
+          if phase == .applying, showsServiceChangeProgress {
+            ServiceChangeProgressList(
+              changes: presentation.serviceChanges,
+              progressEvents: presentation.events.compactMap(\.serviceProgress)
+            )
+            .padding(.leading, 28)
+            .transition(.opacity.combined(with: .move(edge: .top)))
           }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("operation.progress.phase.\(phase.rawValue)")
-        .accessibilityValue(state.label)
+      }
+    }
+    .animation(
+      .easeOut(duration: 0.18),
+      value: showsServiceChangeProgress
+    )
+  }
+
+  private var showsDynamicMessage: Bool {
+    switch operationKind {
+    case .optimize, .restore:
+      false
+    case .preflight, .verify, .scanStorage, .cleanStorage, .boot, .shutdown,
+      .erase, .delete, .clone, .openSimulator:
+      true
+    }
+  }
+
+  private var showsServiceChangeProgress: Bool {
+    guard
+      !presentation.serviceChanges.isEmpty,
+      presentation.events.contains(where: { $0.phase == .applying })
+    else {
+      return false
+    }
+    return !presentation.events.contains {
+      switch $0.phase {
+      case .restarting, .verifying, .measuringAfter, .finalizing, .completed:
+        true
+      case .preflight, .preparing, .measuringBefore, .applying, .scanningStorage,
+        .cleaningStorage, .deviceAction:
+        false
       }
     }
   }
@@ -614,17 +662,17 @@ struct OperationProgressPanel: View {
   private var visiblePhases: [OperationPhase] {
     switch operationKind {
     case .preflight:
-      [.preflight, .completed]
+      [.preflight]
     case .optimize, .restore:
-      [.preflight, .preparing, .applying, .restarting, .verifying, .completed]
+      [.preflight, .preparing, .applying, .restarting, .verifying]
     case .verify:
-      [.preflight, .verifying, .completed]
+      [.preflight, .verifying]
     case .scanStorage:
-      [.preflight, .scanningStorage, .finalizing, .completed]
+      [.preflight, .scanningStorage, .finalizing]
     case .cleanStorage:
-      [.preflight, .cleaningStorage, .verifying, .completed]
+      [.preflight, .cleaningStorage, .verifying]
     case .boot, .shutdown, .erase, .delete, .clone, .openSimulator:
-      [.preflight, .deviceAction, .verifying, .completed]
+      [.preflight, .deviceAction, .verifying]
     }
   }
 
@@ -695,6 +743,167 @@ struct OperationProgressPanel: View {
         label: L10n.text("progress.failed"),
         isWaiting: false
       )
+    }
+  }
+}
+
+private struct ServiceChangeProgressList: View {
+  let changes: [ServiceChange]
+  let progressEvents: [ServiceChangeProgress]
+
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var isHovered = false
+
+  var body: some View {
+    ScrollViewReader { proxy in
+      ScrollView(.vertical) {
+        LazyVStack(spacing: 0) {
+          ForEach(changes, id: \.label) { change in
+            ServiceChangeProgressRow(
+              change: change,
+              state: latestStates[change.label]
+            )
+            .id(change.label)
+
+            if change.label != changes.last?.label {
+              Divider()
+                .padding(.leading, 30)
+            }
+          }
+        }
+        .padding(.vertical, 4)
+      }
+      .scrollIndicators(.visible)
+      .frame(height: 132)
+      .background(
+        Color.instrumentRaised.opacity(0.72),
+        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+      )
+      .onHover { isHovered = $0 }
+      .onChange(of: latestChangedLabel) { _, label in
+        guard let label, !isHovered else { return }
+        if reduceMotion {
+          proxy.scrollTo(label, anchor: .center)
+        } else {
+          withAnimation(.easeOut(duration: 0.18)) {
+            proxy.scrollTo(label, anchor: .center)
+          }
+        }
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel(L10n.text("service-progress.list"))
+  }
+
+  private var latestStates: [String: ServiceChangeProgressState] {
+    Dictionary(
+      progressEvents.map { ($0.change.label, $0.state) },
+      uniquingKeysWith: { _, latest in latest }
+    )
+  }
+
+  private var latestChangedLabel: String? {
+    progressEvents.last?.change.label
+  }
+}
+
+private struct ServiceChangeProgressRow: View {
+  let change: ServiceChange
+  let state: ServiceChangeProgressState?
+
+  var body: some View {
+    HStack(spacing: 8) {
+      statusIcon
+        .frame(width: 16, height: 16)
+
+      Text(change.serviceName)
+        .font(.caption)
+        .lineLimit(1)
+
+      Spacer(minLength: 10)
+
+      Text(change.localizedStateTransition)
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+
+      Text(statusTitle)
+        .font(.caption2.weight(.medium))
+        .foregroundStyle(statusTint)
+        .frame(width: 52, alignment: .trailing)
+        .lineLimit(1)
+    }
+    .padding(.horizontal, 10)
+    .frame(height: 30)
+    .background(rowBackground)
+    .accessibilityElement(children: .combine)
+    .accessibilityValue(statusTitle)
+  }
+
+  @ViewBuilder
+  private var statusIcon: some View {
+    if state == .running {
+      ProgressView()
+        .controlSize(.mini)
+        .tint(.mint)
+    } else {
+      Image(systemName: statusSymbol)
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(statusTint)
+    }
+  }
+
+  private var statusSymbol: String {
+    switch state {
+    case nil:
+      "circle"
+    case .running:
+      "circle"
+    case .awaitingVerification:
+      "circle.dotted"
+    case .succeeded:
+      "checkmark.circle.fill"
+    case .skipped:
+      "exclamationmark.circle.fill"
+    }
+  }
+
+  private var statusTitle: String {
+    switch state {
+    case nil:
+      L10n.text("service-progress.waiting")
+    case .running:
+      L10n.text("service-progress.running")
+    case .awaitingVerification:
+      L10n.text("service-progress.awaiting-verification")
+    case .succeeded:
+      L10n.text(
+        change.transition == .disable
+          ? "service-progress.disabled"
+          : "service-progress.enabled"
+      )
+    case .skipped:
+      L10n.text("service-progress.skipped")
+    }
+  }
+
+  private var statusTint: Color {
+    switch state {
+    case nil:
+      .secondary
+    case .running, .awaitingVerification, .succeeded:
+      .mint
+    case .skipped:
+      .orange
+    }
+  }
+
+  private var rowBackground: Color {
+    switch state {
+    case .running:
+      Color.mint.opacity(0.07)
+    case nil, .awaitingVerification, .succeeded, .skipped:
+      .clear
     }
   }
 }

@@ -121,10 +121,19 @@ struct DangerPresentation: Identifiable {
 
 struct PresentedOperation {
   let operation: SimulatorOperation
+  let serviceChanges: [ServiceChange]
   var events: [OperationEvent] = []
   var receipt: OperationReceipt?
   var failureMessage: String?
   var stopRequested = false
+
+  init(
+    operation: SimulatorOperation,
+    serviceChanges: [ServiceChange] = []
+  ) {
+    self.operation = operation
+    self.serviceChanges = serviceChanges
+  }
 
   var isRunning: Bool {
     receipt == nil
