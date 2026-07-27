@@ -36,7 +36,7 @@ struct WorkspaceRootView: View {
       ToolbarItem(placement: .primaryAction) {
         Button {
           WindowFocus.endTextEditing()
-          model.refreshOverview()
+          model.refreshOverview(reason: .manual)
         } label: {
           RefreshToolbarIcon(isRefreshing: model.isLoadingOverview)
         }
@@ -65,21 +65,21 @@ struct WorkspaceRootView: View {
       while !Task.isCancelled {
         do {
           try await Task.sleep(
-            for: .seconds(refreshConfiguration.interval),
+            for: .seconds(
+              refreshConfiguration.interval * model.automaticRefreshBackoffMultiplier
+            ),
             clock: .continuous
           )
         } catch {
           return
         }
         guard !model.hasRunningOperation, !model.isLoadingOverview else { continue }
-        model.refreshOverview()
+        let refreshTask = model.refreshOverview(reason: .automatic)
+        await refreshTask.value
       }
     }
     .task(id: model.toast?.id) {
       guard let toastID = model.toast?.id else { return }
-      #if DEBUG
-        guard !ProcessInfo.processInfo.arguments.contains("--ui-testing") else { return }
-      #endif
       do {
         try await Task.sleep(for: .seconds(3), clock: .continuous)
       } catch {
@@ -146,9 +146,7 @@ struct WorkspaceRootView: View {
   private func positionWindowOnBuiltInDisplayIfRequested() {
     #if DEBUG
       let arguments = ProcessInfo.processInfo.arguments
-      guard
-        arguments.contains("--ui-testing") || arguments.contains("--built-in-display")
-      else { return }
+      guard arguments.contains("--built-in-display") else { return }
       DispatchQueue.main.async {
         guard let window = NSApp.windows.first(where: { $0.canBecomeKey }) else { return }
         let targetScreen =
@@ -605,7 +603,7 @@ private struct BatchOptimizationView: View {
         } description: {
           Text("batch.empty.message")
         } actions: {
-          Button("action.refresh") { model.refreshOverview() }
+          Button("action.refresh") { model.refreshOverview(reason: .manual) }
             .buttonStyle(PressablePrimaryButtonStyle())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1107,7 +1105,7 @@ private struct EnvironmentFailureView: View {
           model.copy("xcrun simctl list devices -j")
         }
         Button("action.retry") {
-          model.refreshOverview()
+          model.refreshOverview(reason: .manual)
         }
         .buttonStyle(PressablePrimaryButtonStyle())
       }
@@ -1133,7 +1131,7 @@ private struct NoSelectionView: View {
       } actions: {
         HStack {
           Button("action.open-xcode") { model.openXcode() }
-          Button("action.refresh") { model.refreshOverview() }
+          Button("action.refresh") { model.refreshOverview(reason: .manual) }
             .buttonStyle(PressablePrimaryButtonStyle())
         }
       }

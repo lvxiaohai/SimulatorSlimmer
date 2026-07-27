@@ -1,5 +1,3 @@
-import AppKit
-import ImageIO
 import SimulatorSlimmerCore
 import SwiftUI
 
@@ -271,7 +269,7 @@ private struct ApplicationRow: View {
 
   var body: some View {
     HStack(spacing: 12) {
-      ApplicationIcon(icon: application.icon, bundleURL: application.bundleURL)
+      ApplicationIcon(fileURL: application.icon.fileURL)
 
       VStack(alignment: .leading, spacing: 4) {
         HStack(spacing: 7) {
@@ -465,19 +463,14 @@ private struct ApplicationKindBadge: View {
 }
 
 private struct ApplicationIcon: View {
-  let icon: SimulatorApplicationIcon
-  let bundleURL: URL?
+  let fileURL: URL?
   @Environment(\.colorScheme) private var colorScheme
-  @State private var image: NSImage?
-
-  private var sourceIdentity: String {
-    "\(icon.fileURL?.path ?? "")|\(bundleURL?.path ?? "")"
-  }
+  @State private var image: CGImage?
 
   var body: some View {
     Group {
       if let image {
-        Image(nsImage: image)
+        Image(decorative: image, scale: 1)
           .resizable()
           .interpolation(.high)
           .scaledToFill()
@@ -496,31 +489,15 @@ private struct ApplicationIcon: View {
         .stroke(colorScheme == .dark ? .white.opacity(0.10) : .black.opacity(0.10), lineWidth: 1)
     }
     .accessibilityHidden(true)
-    .task(id: sourceIdentity) {
-      await Task.yield()
-      image = Self.loadImage(iconURL: icon.fileURL, bundleURL: bundleURL)
+    .task(id: fileURL) {
+      image = nil
+      guard let fileURL else { return }
+      let loadedImage = await ApplicationIconLoader.shared.icon(
+        at: fileURL,
+        maximumPixelSize: 84
+      )
+      guard !Task.isCancelled else { return }
+      image = loadedImage
     }
-  }
-
-  private static func loadImage(iconURL: URL?, bundleURL: URL?) -> NSImage? {
-    if let iconURL, let thumbnail = thumbnail(at: iconURL) {
-      return thumbnail
-    }
-    guard let bundleURL else { return nil }
-    let workspaceIcon = NSWorkspace.shared.icon(forFile: bundleURL.path)
-    return workspaceIcon.isValid ? workspaceIcon : nil
-  }
-
-  private static func thumbnail(at url: URL) -> NSImage? {
-    guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-    let options: [CFString: Any] = [
-      kCGImageSourceCreateThumbnailFromImageAlways: true,
-      kCGImageSourceCreateThumbnailWithTransform: true,
-      kCGImageSourceThumbnailMaxPixelSize: 128,
-    ]
-    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-      return nil
-    }
-    return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
   }
 }

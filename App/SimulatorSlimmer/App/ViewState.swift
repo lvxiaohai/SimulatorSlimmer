@@ -1,6 +1,13 @@
 import Foundation
 import SimulatorSlimmerCore
 
+enum OverviewRefreshReason {
+  case initial
+  case manual
+  case automatic
+  case background
+}
+
 enum SidebarSelection: Hashable {
   case device(SimulatorID)
 }

@@ -14,7 +14,7 @@ struct SimulatorSlimmerCommands: Commands {
     CommandGroup(after: .sidebar) {
       Button("command.refresh") {
         WindowFocus.endTextEditing()
-        model.refreshOverview()
+        model.refreshOverview(reason: .manual)
       }
       .keyboardShortcut("r", modifiers: .command)
       .disabled(model.isLoadingOverview)

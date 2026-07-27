@@ -31,6 +31,7 @@ final class AppModel {
   var batchPreviewCompletedCount = 0
   var batchPreviewTotalCount = 0
   var isLoadingOverview = false
+  private(set) var automaticRefreshBackoffMultiplier = 1.0
   var simulatorCreationOptions: SimulatorCreationOptions?
   var isLoadingSimulatorCreationOptions = false
   var simulatorCreationError: String?
@@ -41,6 +42,7 @@ final class AppModel {
   var openingApplicationBundleID: String?
   var isExportingDiagnostics = false
   var loadError: String?
+  private(set) var lastOverviewRefreshError: String?
   var notice: AppNotice?
   var toast: AppToast?
   var previewPresentation: PreviewPresentation?
@@ -68,6 +70,7 @@ final class AppModel {
   @ObservationIgnored private var diagnosticsTask: Task<Void, Never>?
   @ObservationIgnored private var batchPreviewTask: Task<Void, Never>?
   @ObservationIgnored private var batchTask: Task<Void, Never>?
+  @ObservationIgnored private var lastKnownStatePersistenceTask: Task<Void, Never>?
   @ObservationIgnored private var operationTasks: [SimulatorID: Task<Void, Never>] = [:]
   @ObservationIgnored private var showSimulatorTasks: [SimulatorID: Task<Void, Never>] = [:]
   @ObservationIgnored private var optimizationDrafts: [SimulatorID: OptimizationDraft] = [:]
@@ -158,7 +161,7 @@ final class AppModel {
 
   func load() {
     guard overview == nil, !isLoadingOverview else { return }
-    refreshOverview()
+    refreshOverview(reason: .initial)
   }
 
   func releaseMainWindowResourcesIfIdle() {
@@ -209,14 +212,15 @@ final class AppModel {
     openingApplicationBundleID = nil
   }
 
-  func refreshOverview() {
+  @discardableResult
+  func refreshOverview(reason: OverviewRefreshReason = .background) -> Task<Void, Never> {
     overviewRequestGeneration &+= 1
     let requestGeneration = overviewRequestGeneration
     overviewTask?.cancel()
     isLoadingOverview = true
     loadError = nil
 
-    overviewTask = Task { [weak self] in
+    let task = Task { [weak self] in
       guard let self else { return }
       do {
         let result = try await workspace.overview()
@@ -226,6 +230,8 @@ final class AppModel {
         else { return }
         overview = result
         isLoadingOverview = false
+        lastOverviewRefreshError = nil
+        automaticRefreshBackoffMultiplier = 1
         synchronizeBatchSelection(with: result.inventory.devices)
         if let preferredDeviceIDAfterRefresh,
           result.inventory.devices.contains(where: { $0.id == preferredDeviceIDAfterRefresh })
@@ -246,16 +252,22 @@ final class AppModel {
       } catch {
         guard requestGeneration == overviewRequestGeneration else { return }
         isLoadingOverview = false
+        lastOverviewRefreshError = error.localizedDescription
         if overview == nil {
           loadError = error.localizedDescription
-        } else {
-          notice = AppNotice(
-            title: L10n.text("error.refresh.title"),
-            message: error.localizedDescription
+        } else if reason == .manual {
+          toast = AppToast(message: L10n.text("error.refresh.preserved"))
+        }
+        if reason == .automatic {
+          automaticRefreshBackoffMultiplier = min(
+            automaticRefreshBackoffMultiplier * 2,
+            8
           )
         }
       }
     }
+    overviewTask = task
+    return task
   }
 
   func selectionChanged() {
@@ -342,18 +354,37 @@ final class AppModel {
     )
   }
 
+  private func scheduleLastKnownServiceStatePersistence() {
+    lastKnownStatePersistenceTask?.cancel()
+    lastKnownStatePersistenceTask = Task { [weak self] in
+      do {
+        try await Task.sleep(for: .milliseconds(150), clock: .continuous)
+      } catch {
+        return
+      }
+      guard let self, !Task.isCancelled else { return }
+      persistLastKnownDisabledServiceLabels()
+      lastKnownStatePersistenceTask = nil
+    }
+  }
+
   private func cacheLastKnownServiceState(_ snapshot: DeviceSnapshot) {
     guard
       snapshot.device.state == .booted,
       snapshot.optimizationSupport == .supported
     else { return }
-    lastKnownDisabledServiceLabelsByDevice[snapshot.device.id.rawValue] = Set(
+    let deviceKey = snapshot.device.id.rawValue
+    let disabledLabels = Set(
       snapshot.services
         .filter(\.isOptimizationCandidate)
         .filter(\.isDisabled)
         .map(\.service.label)
     )
-    persistLastKnownDisabledServiceLabels()
+    guard lastKnownDisabledServiceLabelsByDevice[deviceKey] != disabledLabels else {
+      return
+    }
+    lastKnownDisabledServiceLabelsByDevice[deviceKey] = disabledLabels
+    scheduleLastKnownServiceStatePersistence()
   }
 
   private func cacheLastKnownServiceState(from receipt: OperationReceipt) {
@@ -363,6 +394,8 @@ final class AppModel {
       lastKnownDisabledServiceLabelsByDevice.removeValue(
         forKey: receipt.deviceID.rawValue
       )
+      lastKnownStatePersistenceTask?.cancel()
+      lastKnownStatePersistenceTask = nil
       persistLastKnownDisabledServiceLabels()
       return
     }
@@ -383,7 +416,7 @@ final class AppModel {
       }
     }
     lastKnownDisabledServiceLabelsByDevice[receipt.deviceID.rawValue] = disabledLabels
-    persistLastKnownDisabledServiceLabels()
+    scheduleLastKnownServiceStatePersistence()
   }
 
   func disabledServiceCount(for snapshot: DeviceSnapshot) -> Int? {
@@ -409,13 +442,11 @@ final class AppModel {
 
   private func loadCustomServiceSnapshotForBatch() {
     guard customServiceSnapshot == nil, customServiceSnapshotTask == nil else { return }
-    guard
-      let device = availableBatchDevices.first(where: {
-        batchSelectedDeviceIDs.contains($0.id)
-      }) ?? availableBatchDevices.first
-    else { return }
+    let devices = availableBatchDevices.filter { batchSelectedDeviceIDs.contains($0.id) }
+    guard !devices.isEmpty else { return }
 
     isLoadingCustomServiceSnapshot = true
+    let workspace = self.workspace
     customServiceSnapshotTask = Task { [weak self] in
       guard let self else { return }
       defer {
@@ -423,8 +454,22 @@ final class AppModel {
         isLoadingCustomServiceSnapshot = false
       }
       do {
-        let result = try await workspace.inspect(device.id)
+        let snapshots = try await withThrowingTaskGroup(
+          of: DeviceSnapshot.self,
+          returning: [DeviceSnapshot].self
+        ) { group in
+          for device in devices {
+            group.addTask { try await workspace.inspect(device.id) }
+          }
+          var results: [DeviceSnapshot] = []
+          results.reserveCapacity(devices.count)
+          for try await snapshot in group {
+            results.append(snapshot)
+          }
+          return results
+        }
         guard !Task.isCancelled else { return }
+        guard let result = Self.mergedCustomServiceSnapshot(snapshots) else { return }
         cacheCustomServiceSnapshot(result)
         initializeCustomSelectionIfNeeded(with: result)
       } catch is CancellationError {
@@ -433,6 +478,47 @@ final class AppModel {
         return
       }
     }
+  }
+
+  private func reloadCustomServiceSnapshotForBatch() {
+    customServiceSnapshotTask?.cancel()
+    customServiceSnapshotTask = nil
+    customServiceSnapshot = nil
+    isLoadingCustomServiceSnapshot = false
+    guard workspaceModal == .batchOptimization else { return }
+    loadCustomServiceSnapshotForBatch()
+  }
+
+  private static func mergedCustomServiceSnapshot(
+    _ snapshots: [DeviceSnapshot]
+  ) -> DeviceSnapshot? {
+    guard let first = snapshots.first else { return nil }
+    let categories = Dictionary(
+      snapshots.flatMap(\.categories).map { ($0.id, $0) },
+      uniquingKeysWith: { current, _ in current }
+    ).values.sorted {
+      $0.name.localizedStandardCompare($1.name) == .orderedAscending
+    }
+    let services = Dictionary(
+      snapshots.flatMap(\.services).map { ($0.service.label, $0) },
+      uniquingKeysWith: { current, next in
+        ServiceState(
+          service: current.service,
+          isDisabled: current.isDisabled || next.isDisabled,
+          isPresent: current.isPresent || next.isPresent
+        )
+      }
+    ).values.sorted {
+      $0.service.name.localizedStandardCompare($1.service.name) == .orderedAscending
+    }
+    return DeviceSnapshot(
+      device: first.device,
+      memory: nil,
+      services: services,
+      categories: categories,
+      plans: [:],
+      optimizationSupport: .supported
+    )
   }
 
   private func cacheCustomServiceSnapshot(_ snapshot: DeviceSnapshot) {
@@ -737,6 +823,7 @@ final class AppModel {
     } else {
       batchSelectedDeviceIDs.remove(deviceID)
     }
+    reloadCustomServiceSnapshotForBatch()
   }
 
   func selectAllBatchDevices() {
@@ -746,6 +833,7 @@ final class AppModel {
       batchPreviewPresentation == nil
     else { return }
     batchSelectedDeviceIDs = Set(availableBatchDevices.map(\.id))
+    reloadCustomServiceSnapshotForBatch()
   }
 
   func clearBatchDevices() {
@@ -755,6 +843,7 @@ final class AppModel {
       batchPreviewPresentation == nil
     else { return }
     batchSelectedDeviceIDs.removeAll()
+    reloadCustomServiceSnapshotForBatch()
   }
 
   func startBatchOptimization() {
@@ -1103,6 +1192,18 @@ final class AppModel {
     persistCustomSelection()
   }
 
+  func replaceCustomServices(with labels: Set<String>) {
+    guard customDisabledLabels != labels else { return }
+    customDisabledLabels = labels
+    persistCustomSelection()
+  }
+
+  func clearCustomServices() {
+    guard !customDisabledLabels.isEmpty || !didInitializeCustomSelection else { return }
+    customDisabledLabels.removeAll()
+    persistCustomSelection()
+  }
+
   func toggleStorageCategory(_ id: String, selected: Bool) {
     if selected {
       selectedStorageCategoryIDs.insert(id)
@@ -1278,7 +1379,9 @@ final class AppModel {
           item.detail = error.localizedDescription
           item.receipt = receipt
         }
-        if error.localizedDescription.contains("重新预览") {
+        if let workspaceError = error as? SimulatorWorkspaceError,
+          case .operationPreviewExpired = workspaceError
+        {
           notice = AppNotice(
             title: L10n.text("batch.preview.stale.title"),
             message: L10n.text("batch.preview.stale.message")
@@ -1649,249 +1752,5 @@ final class AppModel {
     } else {
       selectedStorageCategoryIDs.removeAll()
     }
-  }
-}
-
-struct MenuBarApplicationItem {
-  let application: SimulatorApplication
-  let memory: ApplicationMemorySnapshot?
-  let icon: NSImage?
-}
-
-struct MenuBarDeviceItem {
-  let deviceSnapshot: MenuBarDeviceSnapshot
-  let applications: [MenuBarApplicationItem]
-  let applicationLoadError: String?
-}
-
-@MainActor
-final class MenuBarContentModel {
-  private let workspace: any SimulatorWorkspaceClient
-
-  private(set) var deviceItems: [MenuBarDeviceItem] = []
-  private(set) var isRefreshing = false
-  private(set) var refreshError: String?
-  private(set) var actionErrorMessage: String?
-
-  private var refreshTask: Task<Void, Never>?
-  private var menuActionTask: Task<Void, Never>?
-  private var iconCache: [URL: NSImage] = [:]
-  private var refreshGeneration = 0
-  var onContentChange: (() -> Void)?
-
-  init(workspace: any SimulatorWorkspaceClient) {
-    self.workspace = workspace
-  }
-
-  @discardableResult
-  func refreshContent(force: Bool = false) -> Task<Void, Never> {
-    if !force, let refreshTask {
-      return refreshTask
-    }
-
-    refreshTask?.cancel()
-    refreshGeneration += 1
-    let generation = refreshGeneration
-    isRefreshing = true
-    refreshError = nil
-
-    let task = Task { [weak self] in
-      guard let self else { return }
-      do {
-        let snapshot = try await workspace.menuBarSnapshot()
-        var resolvedDevices: [MenuBarDeviceItem] = []
-        resolvedDevices.reserveCapacity(snapshot.devices.count)
-
-        for deviceSnapshot in snapshot.devices {
-          try Task.checkCancellation()
-          let deviceID = deviceSnapshot.device.id
-
-          do {
-            let applicationSnapshot = try await workspace.applications(
-              for: deviceID
-            )
-            let applications = applicationSnapshot.applications
-              .filter { $0.kind == .user }
-              .map { application in
-                MenuBarApplicationItem(
-                  application: application,
-                  memory: applicationSnapshot.memoryByBundleIdentifier[
-                    application.bundleIdentifier
-                  ],
-                  icon: cachedIcon(for: application)
-                )
-              }
-              .sorted(by: Self.sortApplicationsByMemory)
-            resolvedDevices.append(
-              MenuBarDeviceItem(
-                deviceSnapshot: deviceSnapshot,
-                applications: applications,
-                applicationLoadError: applicationSnapshot.memoryError
-              )
-            )
-          } catch is CancellationError {
-            throw CancellationError()
-          } catch {
-            resolvedDevices.append(
-              MenuBarDeviceItem(
-                deviceSnapshot: deviceSnapshot,
-                applications: [],
-                applicationLoadError: error.localizedDescription
-              )
-            )
-          }
-        }
-
-        guard !Task.isCancelled else { return }
-        let currentBundleURLs = Set(
-          resolvedDevices
-            .flatMap(\.applications)
-            .compactMap(\.application.bundleURL)
-            .map(\.standardizedFileURL)
-        )
-        iconCache = iconCache.filter { currentBundleURLs.contains($0.key) }
-        deviceItems = resolvedDevices
-        isRefreshing = false
-        refreshTask = nil
-        guard generation == refreshGeneration else { return }
-        onContentChange?()
-      } catch is CancellationError {
-        guard generation == refreshGeneration else { return }
-        finishRefresh()
-      } catch {
-        guard generation == refreshGeneration else { return }
-        refreshError = error.localizedDescription
-        finishRefresh()
-      }
-    }
-    refreshTask = task
-    return task
-  }
-
-  func cancelRefresh() {
-    refreshGeneration += 1
-    refreshTask?.cancel()
-    refreshTask = nil
-    isRefreshing = false
-  }
-
-  func openApplicationDataDirectory(
-    for application: SimulatorApplication,
-    deviceID: SimulatorID
-  ) {
-    menuActionTask?.cancel()
-    clearActionError()
-    menuActionTask = Task { [weak self] in
-      guard let self else { return }
-      do {
-        let folderURL = try await workspace.dataContainer(
-          for: deviceID,
-          bundleIdentifier: application.bundleIdentifier
-        )
-        guard !Task.isCancelled else { return }
-        guard let folderURL else {
-          actionErrorMessage = L10n.formatted(
-            "menu-bar.data-directory-missing",
-            application.displayName
-          )
-          menuActionTask = nil
-          onContentChange?()
-          NSSound.beep()
-          return
-        }
-        FinderFolderOpener.open(folderURL)
-        actionErrorMessage = nil
-        menuActionTask = nil
-      } catch is CancellationError {
-        return
-      } catch {
-        guard !Task.isCancelled else { return }
-        actionErrorMessage = L10n.formatted(
-          "menu-bar.data-directory-open-failed",
-          application.displayName
-        )
-        menuActionTask = nil
-        onContentChange?()
-        NSSound.beep()
-      }
-    }
-  }
-
-  func showDeviceInSimulator(_ device: SimulatorDevice) {
-    menuActionTask?.cancel()
-    clearActionError()
-    menuActionTask = Task { [weak self] in
-      guard let self else { return }
-      do {
-        try await workspace.showSimulator(device.id)
-        guard !Task.isCancelled else { return }
-        actionErrorMessage = nil
-        menuActionTask = nil
-      } catch is CancellationError {
-        return
-      } catch {
-        guard !Task.isCancelled else { return }
-        actionErrorMessage = L10n.formatted(
-          "menu-bar.show-device-failed",
-          device.name
-        )
-        menuActionTask = nil
-        onContentChange?()
-        NSSound.beep()
-      }
-    }
-  }
-
-  private func finishRefresh() {
-    isRefreshing = false
-    refreshTask = nil
-    onContentChange?()
-  }
-
-  private func clearActionError() {
-    guard actionErrorMessage != nil else { return }
-    actionErrorMessage = nil
-    onContentChange?()
-  }
-
-  private static func sortApplicationsByMemory(
-    _ lhs: MenuBarApplicationItem,
-    _ rhs: MenuBarApplicationItem
-  ) -> Bool {
-    let lhsBytes = lhs.memory?.bytes ?? -1
-    let rhsBytes = rhs.memory?.bytes ?? -1
-    if lhsBytes != rhsBytes {
-      return lhsBytes > rhsBytes
-    }
-    return
-      lhs.application.displayName.localizedStandardCompare(
-        rhs.application.displayName
-      ) == .orderedAscending
-  }
-
-  private func cachedIcon(for application: SimulatorApplication) -> NSImage? {
-    guard let bundleURL = application.bundleURL else { return nil }
-    let cacheKey = bundleURL.standardizedFileURL
-    if let cached = iconCache[cacheKey] {
-      return cached
-    }
-    let source = NSWorkspace.shared.icon(forFile: cacheKey.path)
-    guard source.isValid, let icon = source.copy() as? NSImage else { return nil }
-    icon.size = NSSize(width: 18, height: 18)
-    iconCache[cacheKey] = icon
-    return icon
-  }
-}
-
-@MainActor
-private enum FinderFolderOpener {
-  static func open(_ folderURL: URL) {
-    if !NSWorkspace.shared.open(folderURL) {
-      NSWorkspace.shared.activateFileViewerSelecting([folderURL])
-    }
-    NSRunningApplication
-      .runningApplications(withBundleIdentifier: "com.apple.finder")
-      .first?
-      .activate(options: [.activateAllWindows])
   }
 }

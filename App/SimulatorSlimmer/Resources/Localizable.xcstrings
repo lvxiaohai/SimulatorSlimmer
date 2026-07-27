@@ -240,7 +240,7 @@
     "error.open-xcode.message" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"在应用程序文件夹中找不到 Xcode。"}}}},
     "error.open-xcode.title" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"无法打开 Xcode"}}}},
     "error.preview.title" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"无法生成操作预览"}}}},
-    "error.refresh.title" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"刷新失败"}}}},
+    "error.refresh.preserved" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"刷新失败，已保留上次数据"}}}},
     "error.verify-refresh.title" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"结果已保存，但刷新失败"}}}},
     "format.changes" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"%ld 项变更"}}}},
     "format.disabled-ratio" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"%ld/%ld"}}}},

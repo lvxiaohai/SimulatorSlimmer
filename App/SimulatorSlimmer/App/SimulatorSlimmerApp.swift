@@ -82,9 +82,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
   private let menu = NSMenu()
   private var statusItem: NSStatusItem?
   private var showMainWindow: (() -> Void)?
-  private var isTrackingMenu = false
   private var isPreparingMenu = false
-  private var hasDeferredMenuUpdate = false
 
   init(model: MenuBarContentModel) {
     self.model = model
@@ -92,12 +90,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     menu.autoenablesItems = false
     menu.delegate = self
     model.onContentChange = { [weak self] in
-      guard let self else { return }
-      if isTrackingMenu {
-        hasDeferredMenuUpdate = true
-      } else {
-        rebuildMenuContent()
-      }
+      self?.replaceDynamicMenuContent()
     }
   }
 
@@ -113,20 +106,6 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     }
   }
 
-  func menuWillOpen(_ menu: NSMenu) {
-    isTrackingMenu = true
-  }
-
-  func menuDidClose(_ menu: NSMenu) {
-    isTrackingMenu = false
-    // 先让当前菜单项的 action 完整执行，再替换菜单结构。
-    DispatchQueue.main.async { [weak self] in
-      guard let self, !isTrackingMenu, hasDeferredMenuUpdate else { return }
-      hasDeferredMenuUpdate = false
-      rebuildMenuContent()
-    }
-  }
-
   private func installStatusItemIfNeeded() {
     guard statusItem == nil else { return }
     let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -139,7 +118,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
       button.action = #selector(presentMenu)
     }
     self.statusItem = statusItem
-    rebuildMenuContent()
+    installMenuContent()
   }
 
   private func removeStatusItem() {
@@ -147,14 +126,11 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     model.cancelRefresh()
     NSStatusBar.system.removeStatusItem(statusItem)
     self.statusItem = nil
-    isTrackingMenu = false
     isPreparingMenu = false
-    hasDeferredMenuUpdate = false
   }
 
-  private func rebuildMenuContent() {
+  private func installMenuContent() {
     menu.removeAllItems()
-
     menu.addItem(
       menuItem(
         title: L10n.text("menu-bar.show-main-window"),
@@ -162,44 +138,6 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
       )
     )
     menu.addItem(.separator())
-
-    if !model.deviceItems.isEmpty {
-      for deviceItem in model.deviceItems {
-        menu.addItem(makeDeviceMenuItem(deviceItem))
-      }
-      if let refreshError = model.refreshError {
-        menu.addItem(.separator())
-        let item = disabledItem(title: L10n.text("menu-bar.device-update-failed"))
-        item.toolTip = refreshError
-        menu.addItem(item)
-        menu.addItem(
-          menuItem(
-            title: L10n.text("menu-bar.reload"),
-            action: #selector(retryRefreshAction)
-          )
-        )
-      }
-    } else if model.isRefreshing {
-      menu.addItem(disabledItem(title: L10n.text("menu-bar.loading")))
-    } else if let refreshError = model.refreshError {
-      let item = disabledItem(title: L10n.text("menu-bar.load-failed"))
-      item.toolTip = refreshError
-      menu.addItem(item)
-      menu.addItem(
-        menuItem(
-          title: L10n.text("menu-bar.reload"),
-          action: #selector(retryRefreshAction)
-        )
-      )
-    } else {
-      menu.addItem(disabledItem(title: L10n.text("menu-bar.no-running-device")))
-    }
-
-    if let actionError = model.actionErrorMessage {
-      menu.addItem(.separator())
-      menu.addItem(disabledItem(title: "⚠︎ \(actionError)"))
-    }
-
     menu.addItem(.separator())
     let quitItem = menuItem(
       title: L10n.text("menu-bar.quit"),
@@ -208,6 +146,61 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     )
     quitItem.keyEquivalentModifierMask = [.command]
     menu.addItem(quitItem)
+    replaceDynamicMenuContent()
+  }
+
+  private func replaceDynamicMenuContent() {
+    guard menu.numberOfItems >= 4 else { return }
+    while menu.numberOfItems > 4 {
+      menu.removeItem(at: 2)
+    }
+    var insertionIndex = 2
+    func insert(_ item: NSMenuItem) {
+      menu.insertItem(item, at: insertionIndex)
+      insertionIndex += 1
+    }
+
+    if !model.deviceItems.isEmpty {
+      for deviceItem in model.deviceItems {
+        insert(makeDeviceMenuItem(deviceItem))
+      }
+      if model.isRefreshing {
+        insert(.separator())
+        insert(disabledItem(title: L10n.text("menu-bar.loading")))
+      }
+      if let refreshError = model.refreshError {
+        insert(.separator())
+        let item = disabledItem(title: L10n.text("menu-bar.device-update-failed"))
+        item.toolTip = refreshError
+        insert(item)
+        insert(
+          menuItem(
+            title: L10n.text("menu-bar.reload"),
+            action: #selector(retryRefreshAction)
+          )
+        )
+      }
+    } else if model.isRefreshing {
+      insert(disabledItem(title: L10n.text("menu-bar.loading")))
+    } else if let refreshError = model.refreshError {
+      let item = disabledItem(title: L10n.text("menu-bar.load-failed"))
+      item.toolTip = refreshError
+      insert(item)
+      insert(
+        menuItem(
+          title: L10n.text("menu-bar.reload"),
+          action: #selector(retryRefreshAction)
+        )
+      )
+    } else {
+      insert(disabledItem(title: L10n.text("menu-bar.no-running-device")))
+    }
+
+    if let actionError = model.actionErrorMessage {
+      insert(.separator())
+      insert(disabledItem(title: "⚠︎ \(actionError)"))
+    }
+    menu.update()
   }
 
   private func makeDeviceMenuItem(_ item: MenuBarDeviceItem) -> NSMenuItem {
@@ -254,7 +247,9 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
             "\(application.application.displayName) · \(memoryText(application.memory?.bytes))",
           action: #selector(openApplicationDataContainer)
         )
-        applicationItem.image = application.icon ?? symbolImage("app")
+        applicationItem.image =
+          application.icon.map(roundedApplicationIcon)
+          ?? symbolImage("app")
         applicationItem.toolTip = L10n.formatted(
           "menu-bar.open-application-directory",
           application.application.displayName
@@ -314,6 +309,20 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     return image
   }
 
+  private func roundedApplicationIcon(_ source: NSImage) -> NSImage {
+    let size = NSSize(width: 18, height: 18)
+    return NSImage(size: size, flipped: false) { bounds in
+      NSGraphicsContext.current?.imageInterpolation = .high
+      NSBezierPath(
+        roundedRect: bounds,
+        xRadius: 4,
+        yRadius: 4
+      ).addClip()
+      source.draw(in: bounds)
+      return true
+    }
+  }
+
   private func menuTitle(_ title: String, leadingImage image: NSImage) -> NSAttributedString {
     let attachment = NSTextAttachment()
     attachment.image = image
@@ -337,21 +346,12 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     else { return }
 
     isPreparingMenu = true
-    let refreshTask = model.refreshContent(force: true)
-    Task { [weak self, weak button] in
-      await refreshTask.value
-      guard
-        let self,
-        let button,
-        self.statusItem === statusItem
-      else { return }
-
-      rebuildMenuContent()
-      statusItem.menu = menu
-      button.performClick(nil)
-      statusItem.menu = nil
-      isPreparingMenu = false
-    }
+    model.refreshContent(force: true)
+    replaceDynamicMenuContent()
+    statusItem.menu = menu
+    button.performClick(nil)
+    statusItem.menu = nil
+    isPreparingMenu = false
   }
 
   @objc private func showMainWindowAction() {
@@ -408,5 +408,244 @@ private final class DeviceMenuContext: NSObject {
 
   init(device: SimulatorDevice) {
     self.device = device
+  }
+}
+
+struct MenuBarApplicationItem {
+  let application: SimulatorApplication
+  let memory: ApplicationMemorySnapshot?
+  let icon: NSImage?
+}
+
+struct MenuBarDeviceItem {
+  let deviceSnapshot: MenuBarDeviceSnapshot
+  let applications: [MenuBarApplicationItem]
+  let applicationLoadError: String?
+}
+
+@MainActor
+final class MenuBarContentModel {
+  private let workspace: any SimulatorWorkspaceClient
+
+  private(set) var deviceItems: [MenuBarDeviceItem] = []
+  private(set) var isRefreshing = false
+  private(set) var refreshError: String?
+  private(set) var actionErrorMessage: String?
+
+  private var refreshTask: Task<Void, Never>?
+  private var menuActionTask: Task<Void, Never>?
+  private var refreshGeneration = 0
+  var onContentChange: (() -> Void)?
+
+  init(workspace: any SimulatorWorkspaceClient) {
+    self.workspace = workspace
+  }
+
+  @discardableResult
+  func refreshContent(force: Bool = false) -> Task<Void, Never> {
+    if !force, let refreshTask {
+      return refreshTask
+    }
+
+    refreshTask?.cancel()
+    refreshGeneration += 1
+    let generation = refreshGeneration
+    isRefreshing = true
+    refreshError = nil
+
+    let task = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let snapshot = try await workspace.menuBarSnapshot()
+        var resolvedDevices: [MenuBarDeviceItem] = []
+        resolvedDevices.reserveCapacity(snapshot.devices.count)
+
+        for deviceSnapshot in snapshot.devices {
+          try Task.checkCancellation()
+          let deviceID = deviceSnapshot.device.id
+
+          do {
+            let applicationSnapshot = try await workspace.applications(
+              for: deviceID
+            )
+            var applications: [MenuBarApplicationItem] = []
+            for application in applicationSnapshot.applications where application.kind == .user {
+              try Task.checkCancellation()
+              let image: NSImage?
+              if let fileURL = application.icon.fileURL,
+                let cgImage = await ApplicationIconLoader.shared.icon(
+                  at: fileURL,
+                  maximumPixelSize: 36
+                )
+              {
+                image = NSImage(
+                  cgImage: cgImage,
+                  size: NSSize(width: 18, height: 18)
+                )
+              } else {
+                image = nil
+              }
+              applications.append(
+                MenuBarApplicationItem(
+                  application: application,
+                  memory: applicationSnapshot.memoryByBundleIdentifier[
+                    application.bundleIdentifier
+                  ],
+                  icon: image
+                )
+              )
+            }
+            applications.sort(by: Self.sortApplicationsByMemory)
+            resolvedDevices.append(
+              MenuBarDeviceItem(
+                deviceSnapshot: deviceSnapshot,
+                applications: applications,
+                applicationLoadError: applicationSnapshot.memoryError
+              )
+            )
+          } catch is CancellationError {
+            throw CancellationError()
+          } catch {
+            resolvedDevices.append(
+              MenuBarDeviceItem(
+                deviceSnapshot: deviceSnapshot,
+                applications: [],
+                applicationLoadError: error.localizedDescription
+              )
+            )
+          }
+        }
+
+        guard !Task.isCancelled else { return }
+        deviceItems = resolvedDevices
+        isRefreshing = false
+        refreshTask = nil
+        guard generation == refreshGeneration else { return }
+        onContentChange?()
+      } catch is CancellationError {
+        guard generation == refreshGeneration else { return }
+        finishRefresh()
+      } catch {
+        guard generation == refreshGeneration else { return }
+        refreshError = error.localizedDescription
+        finishRefresh()
+      }
+    }
+    refreshTask = task
+    return task
+  }
+
+  func cancelRefresh() {
+    refreshGeneration += 1
+    refreshTask?.cancel()
+    refreshTask = nil
+    isRefreshing = false
+  }
+
+  func openApplicationDataDirectory(
+    for application: SimulatorApplication,
+    deviceID: SimulatorID
+  ) {
+    menuActionTask?.cancel()
+    clearActionError()
+    menuActionTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let folderURL = try await workspace.dataContainer(
+          for: deviceID,
+          bundleIdentifier: application.bundleIdentifier
+        )
+        guard !Task.isCancelled else { return }
+        guard let folderURL else {
+          actionErrorMessage = L10n.formatted(
+            "menu-bar.data-directory-missing",
+            application.displayName
+          )
+          menuActionTask = nil
+          onContentChange?()
+          NSSound.beep()
+          return
+        }
+        FinderFolderOpener.open(folderURL)
+        actionErrorMessage = nil
+        menuActionTask = nil
+      } catch is CancellationError {
+        return
+      } catch {
+        guard !Task.isCancelled else { return }
+        actionErrorMessage = L10n.formatted(
+          "menu-bar.data-directory-open-failed",
+          application.displayName
+        )
+        menuActionTask = nil
+        onContentChange?()
+        NSSound.beep()
+      }
+    }
+  }
+
+  func showDeviceInSimulator(_ device: SimulatorDevice) {
+    menuActionTask?.cancel()
+    clearActionError()
+    menuActionTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await workspace.showSimulator(device.id)
+        guard !Task.isCancelled else { return }
+        actionErrorMessage = nil
+        menuActionTask = nil
+      } catch is CancellationError {
+        return
+      } catch {
+        guard !Task.isCancelled else { return }
+        actionErrorMessage = L10n.formatted(
+          "menu-bar.show-device-failed",
+          device.name
+        )
+        menuActionTask = nil
+        onContentChange?()
+        NSSound.beep()
+      }
+    }
+  }
+
+  private func finishRefresh() {
+    isRefreshing = false
+    refreshTask = nil
+    onContentChange?()
+  }
+
+  private func clearActionError() {
+    guard actionErrorMessage != nil else { return }
+    actionErrorMessage = nil
+    onContentChange?()
+  }
+
+  private static func sortApplicationsByMemory(
+    _ lhs: MenuBarApplicationItem,
+    _ rhs: MenuBarApplicationItem
+  ) -> Bool {
+    let lhsBytes = lhs.memory?.bytes ?? -1
+    let rhsBytes = rhs.memory?.bytes ?? -1
+    if lhsBytes != rhsBytes {
+      return lhsBytes > rhsBytes
+    }
+    return
+      lhs.application.displayName.localizedStandardCompare(
+        rhs.application.displayName
+      ) == .orderedAscending
+  }
+}
+
+@MainActor
+enum FinderFolderOpener {
+  static func open(_ folderURL: URL) {
+    if !NSWorkspace.shared.open(folderURL) {
+      NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+    }
+    NSRunningApplication
+      .runningApplications(withBundleIdentifier: "com.apple.finder")
+      .first?
+      .activate(options: [.activateAllWindows])
   }
 }

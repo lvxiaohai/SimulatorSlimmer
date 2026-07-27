@@ -220,18 +220,18 @@ struct CustomServicePicker: View {
           .font(.caption.monospacedDigit())
           .foregroundStyle(.secondary)
         Button("custom-services.action.select-all") {
-          model.setCustomServices(visibleLabels, disabled: true)
+          model.replaceCustomServices(with: visibleLabels)
         }
         .buttonStyle(.borderless)
         .minimumHitArea()
-        .disabled(visibleSelectedCount == visibleLabels.count)
+        .disabled(model.customDisabledLabels == visibleLabels)
         .accessibilityIdentifier("custom-services.select-all")
         Button("custom-services.action.clear") {
-          model.setCustomServices(visibleLabels, disabled: false)
+          model.clearCustomServices()
         }
         .buttonStyle(.borderless)
         .minimumHitArea()
-        .disabled(visibleSelectedCount == 0)
+        .disabled(model.customDisabledLabels.isEmpty)
         .accessibilityIdentifier("custom-services.clear")
       }
 
