@@ -705,6 +705,337 @@ struct SimulatorWorkspaceBehaviorTests {
     #expect(await noRestartSimulator.currentState() == .shutdown)
   }
 
+  @Test("启动时只读确认待清理路径已不存在并归档回执")
+  func interruptedCleanupArchivesMissingPathWithoutRetrying() async throws {
+    try await withTemporaryDirectory { directory in
+      let device = SimulatorDevice(
+        id: SimulatorID(rawValue: "E5E5E5E5-F6F6-4707-8818-C9C9C9C9C9C9"),
+        name: "中断清理设备",
+        runtimeIdentifier: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+        runtimeName: "iOS 26.5",
+        deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+        state: .shutdown,
+        isAvailable: true,
+        dataPath: directory
+      )
+      let source = OperationReceipt(
+        kind: .cleanStorage,
+        deviceID: device.id,
+        deviceName: device.name,
+        status: .running,
+        originalDeviceState: .shutdown,
+        shouldRestoreOriginalDeviceState: false,
+        pendingStorageCleanupPath: "Library/Caches/interrupted.cache"
+      )
+      let simulator = WorkspaceSimulatorSpy(device: device)
+      let workspace = makeWorkspace(
+        simulator: simulator,
+        receiptStore: WorkspaceReceiptStoreSpy(seed: [source]),
+        services: []
+      )
+
+      let overview = try await workspace.overview()
+      let recovered = try #require(
+        overview.recentReceipts.first { $0.id == source.id }
+      )
+
+      #expect(recovered.pendingStorageCleanupPath == nil)
+      #expect(overview.pendingReceipts.isEmpty)
+      #expect(
+        recovered.messages.contains {
+          $0.contains("待清理路径当前已不存在") && $0.contains("未重试")
+        }
+      )
+      #expect(await simulator.mutatingCommands().isEmpty)
+    }
+  }
+
+  @Test("启动时只读确认待清理路径仍存在并停止清理")
+  func interruptedCleanupArchivesExistingPathWithoutRetrying() async throws {
+    try await withTemporaryDirectory { directory in
+      let relativePath = "Library/Caches/interrupted.cache"
+      let pendingURL = directory.appendingPathComponent(relativePath)
+      try FileManager.default.createDirectory(
+        at: pendingURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try Data("仍存在".utf8).write(to: pendingURL)
+      let device = SimulatorDevice(
+        id: SimulatorID(rawValue: "F6F6F6F6-0707-4818-8929-DADADADADADA"),
+        name: "中断清理设备",
+        runtimeIdentifier: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+        runtimeName: "iOS 26.5",
+        deviceTypeIdentifier: "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro",
+        state: .shutdown,
+        isAvailable: true,
+        dataPath: directory
+      )
+      let source = OperationReceipt(
+        kind: .cleanStorage,
+        deviceID: device.id,
+        deviceName: device.name,
+        status: .running,
+        originalDeviceState: .shutdown,
+        shouldRestoreOriginalDeviceState: false,
+        pendingStorageCleanupPath: relativePath
+      )
+      let simulator = WorkspaceSimulatorSpy(device: device)
+      let workspace = makeWorkspace(
+        simulator: simulator,
+        receiptStore: WorkspaceReceiptStoreSpy(seed: [source]),
+        services: []
+      )
+
+      let overview = try await workspace.overview()
+      let recovered = try #require(
+        overview.recentReceipts.first { $0.id == source.id }
+      )
+
+      #expect(recovered.pendingStorageCleanupPath == nil)
+      #expect(overview.pendingReceipts.isEmpty)
+      #expect(
+        recovered.messages.contains {
+          $0.contains("待清理路径当前仍存在") && $0.contains("未重试")
+        }
+      )
+      #expect(FileManager.default.fileExists(atPath: pendingURL.path))
+      #expect(await simulator.mutatingCommands().isEmpty)
+    }
+  }
+
+  @Test("启动时只读确认待删除设备已不存在并归档回执")
+  func interruptedDeleteArchivesMissingDeviceWithoutRetrying() async throws {
+    let device = makeWorkspaceDevice(
+      id: "07070707-1818-4929-8A3A-EBEBEBEBEBEB",
+      state: .shutdown
+    )
+    let source = OperationReceipt(
+      kind: .delete,
+      deviceID: device.id,
+      deviceName: device.name,
+      status: .running,
+      originalDeviceState: .shutdown,
+      runtimeIdentifier: device.runtimeIdentifier,
+      pendingDeviceAction: PendingDeviceAction(kind: .delete)
+    )
+    let simulator = WorkspaceSimulatorSpy(
+      device: device,
+      includeDeviceInInventory: false
+    )
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(seed: [source]),
+      services: []
+    )
+
+    let overview = try await workspace.overview()
+    let recovered = try #require(
+      overview.recentReceipts.first { $0.id == source.id }
+    )
+
+    #expect(recovered.pendingDeviceAction == nil)
+    #expect(recovered.finalDeviceState == .unavailable)
+    #expect(overview.pendingReceipts.isEmpty)
+    #expect(
+      recovered.messages.contains {
+        $0.contains("待删除设备已不在当前设备清单中") && $0.contains("未重试")
+      }
+    )
+    #expect(await simulator.mutatingCommands().isEmpty)
+  }
+
+  @Test("启动时只读确认待删除设备仍存在并停止删除")
+  func interruptedDeleteArchivesExistingDeviceWithoutRetrying() async throws {
+    let device = makeWorkspaceDevice(
+      id: "18181818-2929-4A3A-8B4B-FCFCFCFCFCFC",
+      state: .shutdown
+    )
+    let source = OperationReceipt(
+      kind: .delete,
+      deviceID: device.id,
+      deviceName: device.name,
+      status: .running,
+      originalDeviceState: .shutdown,
+      runtimeIdentifier: device.runtimeIdentifier,
+      pendingDeviceAction: PendingDeviceAction(kind: .delete)
+    )
+    let simulator = WorkspaceSimulatorSpy(device: device)
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(seed: [source]),
+      services: []
+    )
+
+    let overview = try await workspace.overview()
+    let recovered = try #require(
+      overview.recentReceipts.first { $0.id == source.id }
+    )
+
+    #expect(recovered.pendingDeviceAction == nil)
+    #expect(recovered.finalDeviceState == .shutdown)
+    #expect(overview.pendingReceipts.isEmpty)
+    #expect(
+      recovered.messages.contains {
+        $0.contains("待删除设备当前仍存在") && $0.contains("未重试")
+      }
+    )
+    #expect(await simulator.mutatingCommands().isEmpty)
+  }
+
+  @Test("启动时对无法确定结果的抹掉操作只保留诊断状态")
+  func interruptedEraseRemainsPendingWithoutRetrying() async throws {
+    let device = makeWorkspaceDevice(
+      id: "29292929-3A3A-4B4B-8C5C-0D0D0D0D0D0D",
+      state: .shutdown
+    )
+    let source = OperationReceipt(
+      kind: .erase,
+      deviceID: device.id,
+      deviceName: device.name,
+      status: .running,
+      originalDeviceState: .shutdown,
+      shouldRestoreOriginalDeviceState: false,
+      runtimeIdentifier: device.runtimeIdentifier,
+      pendingDeviceAction: PendingDeviceAction(kind: .erase)
+    )
+    let simulator = WorkspaceSimulatorSpy(device: device)
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(seed: [source]),
+      services: []
+    )
+
+    let overview = try await workspace.overview()
+    let recovered = try #require(
+      overview.recentReceipts.first { $0.id == source.id }
+    )
+
+    #expect(recovered.pendingDeviceAction?.kind == .erase)
+    #expect(overview.pendingReceipts.map(\.id) == [source.id])
+    #expect(
+      recovered.messages.contains {
+        $0.contains("无法只读确定抹掉是否完成") && $0.contains("未重试")
+      }
+    )
+    #expect(await simulator.mutatingCommands().isEmpty)
+  }
+
+  @Test("启动时对无法确定结果的克隆操作只保留诊断状态")
+  func interruptedCloneRemainsPendingWithoutRetrying() async throws {
+    let device = makeWorkspaceDevice(
+      id: "3A3A3A3A-4B4B-4C5C-8D6D-1E1E1E1E1E1E",
+      state: .shutdown
+    )
+    let source = OperationReceipt(
+      kind: .clone,
+      deviceID: device.id,
+      deviceName: device.name,
+      status: .running,
+      originalDeviceState: .shutdown,
+      shouldRestoreOriginalDeviceState: false,
+      runtimeIdentifier: device.runtimeIdentifier,
+      pendingDeviceAction: PendingDeviceAction(
+        kind: .clone,
+        cloneName: "中断副本"
+      )
+    )
+    let simulator = WorkspaceSimulatorSpy(device: device)
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(seed: [source]),
+      services: []
+    )
+
+    let overview = try await workspace.overview()
+    let recovered = try #require(
+      overview.recentReceipts.first { $0.id == source.id }
+    )
+
+    #expect(recovered.pendingDeviceAction?.kind == .clone)
+    #expect(recovered.pendingDeviceAction?.cloneName == "中断副本")
+    #expect(overview.pendingReceipts.map(\.id) == [source.id])
+    #expect(
+      recovered.messages.contains {
+        $0.contains("无法只读确定克隆是否完成") && $0.contains("未重试")
+      }
+    )
+    #expect(await simulator.mutatingCommands().isEmpty)
+  }
+
+  @Test("启动时对无法定位路径的清理操作只保留诊断状态")
+  func interruptedCleanupWithoutDataPathRemainsPendingWithoutRetrying() async throws {
+    let device = makeWorkspaceDevice(
+      id: "4B4B4B4B-5C5C-4D6D-8E7E-2F2F2F2F2F2F",
+      state: .shutdown
+    )
+    let source = OperationReceipt(
+      kind: .cleanStorage,
+      deviceID: device.id,
+      deviceName: device.name,
+      status: .running,
+      originalDeviceState: .shutdown,
+      shouldRestoreOriginalDeviceState: false,
+      runtimeIdentifier: device.runtimeIdentifier,
+      pendingStorageCleanupPath: "Library/Caches/interrupted.cache"
+    )
+    let simulator = WorkspaceSimulatorSpy(device: device)
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(seed: [source]),
+      services: []
+    )
+
+    let overview = try await workspace.overview()
+    let recovered = try #require(
+      overview.recentReceipts.first { $0.id == source.id }
+    )
+
+    #expect(recovered.pendingStorageCleanupPath == source.pendingStorageCleanupPath)
+    #expect(overview.pendingReceipts.map(\.id) == [source.id])
+    #expect(
+      recovered.messages.contains {
+        $0.contains("无法只读定位待清理路径") && $0.contains("未重试")
+      }
+    )
+    #expect(await simulator.mutatingCommands().isEmpty)
+  }
+
+  @Test("运行时缺失时待删除操作只保留诊断状态")
+  func interruptedDeleteWithoutRuntimeRemainsPendingWithoutRetrying() async throws {
+    let device = makeWorkspaceDevice(
+      id: "5C5C5C5C-6D6D-4E7E-8F8F-303030303030",
+      state: .shutdown
+    )
+    let source = OperationReceipt(
+      kind: .delete,
+      deviceID: device.id,
+      deviceName: device.name,
+      status: .running,
+      originalDeviceState: .shutdown,
+      pendingDeviceAction: PendingDeviceAction(kind: .delete)
+    )
+    let simulator = WorkspaceSimulatorSpy(device: device)
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(seed: [source]),
+      services: []
+    )
+
+    let overview = try await workspace.overview()
+    let recovered = try #require(
+      overview.recentReceipts.first { $0.id == source.id }
+    )
+
+    #expect(recovered.pendingDeviceAction?.kind == .delete)
+    #expect(overview.pendingReceipts.map(\.id) == [source.id])
+    #expect(
+      recovered.messages.contains {
+        $0.contains("无法只读确认待删除设备") && $0.contains("未重试")
+      }
+    )
+    #expect(await simulator.mutatingCommands().isEmpty)
+  }
+
   @Test("继续验证只读核对中断前已完成的服务变更")
   func continuationVerificationDoesNotMutateServices() async throws {
     let service = makeWorkspaceService(id: "verify", label: "com.test.verify")
@@ -986,9 +1317,11 @@ struct SimulatorWorkspaceBehaviorTests {
       await simulator.disabledLabelReadCount() - disabledLabelReadsBeforeExecution == 3
     )
     for service in services {
-      let states = serviceProgressEvents
+      let states =
+        serviceProgressEvents
         .filter { $0.change.label == service.label }
         .map(\.state)
+
       #expect(states == [.running, .awaitingVerification, .succeeded])
     }
   }
@@ -1374,8 +1707,14 @@ struct SimulatorWorkspaceBehaviorTests {
       customDisabledLabels: []
     )
 
-    await #expect(throws: SimulatorWorkspaceError.self) {
+    do {
       _ = try await collect(await workspace.perform(operation))
+      Issue.record("缺少预览确认时应抛出预览过期错误")
+    } catch let error as SimulatorWorkspaceError {
+      guard case .operationPreviewExpired = error else {
+        Issue.record("错误类型不是 operationPreviewExpired：\(error)")
+        return
+      }
     }
 
     #expect(await simulator.mutatingCommands().isEmpty)
@@ -1778,6 +2117,7 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
   private let firstInventoryDelay: Duration?
   private var inventoryCallCount = 0
   private var stateOnNextValidation: SimulatorState?
+  private let includeDeviceInInventory: Bool
 
   init(
     device: SimulatorDevice,
@@ -1789,7 +2129,8 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
     failDisabledLabelReadsAfterServiceCommand: Bool = false,
     disabledServicesAppearAbsent: Bool = false,
     serviceToEnableOnRestart: String? = nil,
-    firstInventoryDelay: Duration? = nil
+    firstInventoryDelay: Duration? = nil,
+    includeDeviceInInventory: Bool = true
   ) {
     self.device = device
     self.disabledLabels = disabledLabels
@@ -1802,6 +2143,7 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
     self.disabledServicesAppearAbsent = disabledServicesAppearAbsent
     self.serviceToEnableOnRestart = serviceToEnableOnRestart
     self.firstInventoryDelay = firstInventoryDelay
+    self.includeDeviceInInventory = includeDeviceInInventory
   }
 
   var deviceID: SimulatorID { device.id }
@@ -1820,7 +2162,7 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
           isAvailable: true
         )
       ],
-      devices: [device]
+      devices: includeDeviceInInventory ? [device] : []
     )
   }
 

@@ -1014,6 +1014,7 @@ public enum SimulatorWorkspaceError: LocalizedError, Sendable {
   case staleStoragePlan
   case unsafePath(String)
   case operationAlreadyRunning(SimulatorID)
+  case operationPreviewExpired(String)
 
   public var errorDescription: String? {
     switch self {
@@ -1030,6 +1031,7 @@ public enum SimulatorWorkspaceError: LocalizedError, Sendable {
     case .staleStoragePlan: "存储扫描结果已过期，请重新扫描"
     case .unsafePath(let path): "拒绝访问不安全路径：\(path)"
     case .operationAlreadyRunning(let id): "模拟器 \(id.rawValue) 已有操作正在运行"
+    case .operationPreviewExpired(let message): message
     }
   }
 }

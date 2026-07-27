@@ -854,7 +854,112 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       try? await receiptStore.save(receipt)
       await deviceLock?.release()
     }
+    try await reconcileInterruptedMutationReceipts()
     didRecoverInterruptedReceipts = true
+  }
+
+  private func reconcileInterruptedMutationReceipts() async throws {
+    let inventory = try await simulator.inventory()
+    let receipts = try await receiptStore.allReceipts()
+    let interruptedReceipts = receipts.filter {
+      $0.schemaVersion == 1
+        && $0.messages.contains { $0.contains(ReceiptStore.interruptionMarker) }
+    }
+
+    for var receipt in interruptedReceipts
+    where receipt.kind == .cleanStorage
+      && receipt.pendingStorageCleanupPath != nil
+    {
+      let candidate = receipt.pendingStorageCleanupPath.flatMap { relativePath in
+        inventory.devices
+          .first(where: { $0.id == receipt.deviceID })?
+          .dataPath
+          .flatMap {
+            Self.validatedInterruptedStoragePath(relativePath, dataPath: $0)
+          }
+      }
+      guard let candidate else {
+        let message =
+          "中断状态只读复核：无法只读定位待清理路径；已保留诊断状态，未重试清理"
+        if !receipt.messages.contains(message) {
+          receipt.messages.append(message)
+          try await receiptStore.save(receipt)
+        }
+        continue
+      }
+
+      let pathStillExists = FileManager.default.fileExists(atPath: candidate.path)
+      receipt.pendingStorageCleanupPath = nil
+      receipt.messages.append(
+        pathStillExists
+          ? "\(ReceiptStore.interruptionResolutionMarker)：只读复核确认待清理路径当前仍存在；未重试清理"
+          : "\(ReceiptStore.interruptionResolutionMarker)：只读复核确认待清理路径当前已不存在；未重试清理"
+      )
+      try await receiptStore.save(receipt)
+    }
+
+    for var receipt in interruptedReceipts
+    where receipt.kind == .delete
+      && receipt.pendingDeviceAction?.kind == .delete
+    {
+      guard
+        let runtimeIdentifier = receipt.runtimeIdentifier,
+        inventory.runtimes.contains(where: { $0.id == runtimeIdentifier })
+      else {
+        let message =
+          "中断状态只读复核：运行时信息不足，无法只读确认待删除设备；已保留诊断状态，未重试删除"
+        if !receipt.messages.contains(message) {
+          receipt.messages.append(message)
+          try await receiptStore.save(receipt)
+        }
+        continue
+      }
+
+      receipt.pendingDeviceAction = nil
+      if let device = inventory.devices.first(where: { $0.id == receipt.deviceID }) {
+        receipt.finalDeviceState = device.state
+        receipt.messages.append(
+          "\(ReceiptStore.interruptionResolutionMarker)：只读复核确认待删除设备当前仍存在；未重试删除"
+        )
+      } else {
+        receipt.finalDeviceState = .unavailable
+        receipt.messages.append(
+          "\(ReceiptStore.interruptionResolutionMarker)：只读复核确认待删除设备已不在当前设备清单中；未重试删除"
+        )
+      }
+      try await receiptStore.save(receipt)
+    }
+
+    for var receipt in interruptedReceipts
+    where receipt.kind == .erase
+      && receipt.pendingDeviceAction?.kind == .erase
+    {
+      let message = "中断状态只读复核：无法只读确定抹掉是否完成；已保留诊断状态，未重试抹掉"
+      guard !receipt.messages.contains(message) else { continue }
+      receipt.messages.append(message)
+      try await receiptStore.save(receipt)
+    }
+
+    for var receipt in interruptedReceipts
+    where receipt.kind == .clone
+      && receipt.pendingDeviceAction?.kind == .clone
+    {
+      let message = "中断状态只读复核：无法只读确定克隆是否完成；已保留诊断状态，未重试克隆"
+      guard !receipt.messages.contains(message) else { continue }
+      receipt.messages.append(message)
+      try await receiptStore.save(receipt)
+    }
+  }
+
+  private static func validatedInterruptedStoragePath(
+    _ relativePath: String,
+    dataPath: URL
+  ) -> URL? {
+    guard !relativePath.isEmpty, !relativePath.hasPrefix("/") else { return nil }
+    let root = dataPath.standardizedFileURL
+    let candidate = root.appendingPathComponent(relativePath).standardizedFileURL
+    guard StorageManager.isDescendant(candidate, of: root) else { return nil }
+    return candidate
   }
 
   private func powerStateWarnings(
@@ -1072,10 +1177,14 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
   ) async throws -> ServiceMutationConfirmation? {
     guard let key = serviceMutationConfirmationKey(for: operation) else { return nil }
     guard let confirmation = serviceMutationConfirmations.removeValue(forKey: key) else {
-      throw SimulatorWorkspaceError.invalidOperation("缺少有效确认，请重新预览并确认服务差异")
+      throw SimulatorWorkspaceError.operationPreviewExpired(
+        "缺少有效确认，请重新预览并确认服务差异"
+      )
     }
     guard ContinuousClock.now <= confirmation.expiresAt else {
-      throw SimulatorWorkspaceError.invalidOperation("确认已过期，请重新预览并确认服务差异")
+      throw SimulatorWorkspaceError.operationPreviewExpired(
+        "确认已过期，请重新预览并确认服务差异"
+      )
     }
     let intendedOriginalState = try await intendedOriginalDeviceState(
       for: operation,
@@ -1086,7 +1195,9 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       confirmation.previewDeviceState == context.device.state,
       confirmation.intendedOriginalDeviceState == intendedOriginalState
     else {
-      throw SimulatorWorkspaceError.invalidOperation("设备或电源状态已变化，请重新预览并确认服务差异")
+      throw SimulatorWorkspaceError.operationPreviewExpired(
+        "设备或电源状态已变化，请重新预览并确认服务差异"
+      )
     }
     if case .cleanStorage(_, let planID, _, _) = operation {
       guard await storageManager.latestPlan(for: operation.deviceID)?.id == planID else {
@@ -1369,7 +1480,9 @@ extension SimulatorWorkspace {
     guard confirmation.changes == Set(plan.changes) else {
       receipt.messages.append("设备服务状态在预览确认后发生变化，未执行任何服务修改")
       try await receiptStore.save(receipt)
-      throw SimulatorWorkspaceError.invalidOperation("设备状态已变化，请重新预览并确认优化差异")
+      throw SimulatorWorkspaceError.operationPreviewExpired(
+        "设备状态已变化，请重新预览并确认优化差异"
+      )
     }
     if !plan.unknownDisabledLabels.isEmpty {
       receipt.messages.append(
@@ -1468,7 +1581,9 @@ extension SimulatorWorkspace {
     guard confirmation.changes == Set(changes) else {
       receipt.messages.append("恢复差异在预览确认后发生变化，未执行任何服务修改")
       try await receiptStore.save(receipt)
-      throw SimulatorWorkspaceError.invalidOperation("恢复项已变化，请重新预览并确认恢复差异")
+      throw SimulatorWorkspaceError.operationPreviewExpired(
+        "恢复项已变化，请重新预览并确认恢复差异"
+      )
     }
     let touchedLabels = Set(
       source.appliedChanges.filter(\.succeeded).map { $0.change.label }

@@ -19,8 +19,8 @@ public protocol SimulatorWorkspaceClient: Sendable {
   func exportDiagnostics(to destinationURL: URL) async throws -> URL
 }
 
-public extension SimulatorWorkspaceClient {
-  func menuBarSnapshot() async throws -> MenuBarSnapshot {
+extension SimulatorWorkspaceClient {
+  public func menuBarSnapshot() async throws -> MenuBarSnapshot {
     let inventory = try await overview().inventory
     let devices = inventory.devices
       .filter { $0.isAvailable && $0.state == .booted }
