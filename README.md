@@ -5,7 +5,7 @@ Simulator Slimmer 是一款完全使用 Swift 与 SwiftUI 实现的原生 macOS 
 ## 当前能力
 
 - 枚举本机 iOS Runtime 与模拟器，显示启动状态、服务状态和进程内存快照。
-- 提供推荐、极致、自定义三种精简方案；推荐方案默认保留常见应用调试能力，每次修改前展示完整计划，修改后重新验证。
+- 提供推荐、极致、自定义和全部启用四种服务方案；默认使用推荐方案，每次修改前展示完整计划，修改后重新验证。
 - 通过事务回执、设备文件锁和中断恢复保存操作证据，按原始基线精确恢复。
 - 批量预览并串行处理多台模拟器，同一设备不会并发修改。
 - 扫描已知安全路径内的缓存、日志和临时文件；删除前复核路径、文件身份和清单。
@@ -18,7 +18,7 @@ Simulator Slimmer 是一款完全使用 Swift 与 SwiftUI 实现的原生 macOS 
 - 不使用私有 CoreSimulator.framework，不需要管理员权限。
 - 不修改宿主 macOS 服务，不自动擦除或删除模拟器。
 - 服务变更、存储清理、克隆、抹掉和删除都必须经过一次性预览确认；预览后状态或输入漂移、确认缺失及重复执行都会被拒绝。
-- 恢复只处理回执记录且由本工具触达的服务，没有可靠回执时不会盲目全部启用。
+- “恢复上次状态”只处理回执记录且由本工具触达的服务；“全部启用”是独立方案，只启用当前服务目录中本工具可管理的服务，不能替代按回执精确恢复。
 - 存储扫描与清理只允许已关机设备；同时拒绝符号链接、路径越界、App Bundle 和 App 主数据目录，扫描结果过期后必须重新扫描。
 - 路径安全模型及仍待用目录描述符彻底收口的极窄并发竞态，详见产品与技术规划的“风险与应对”。
 
@@ -36,17 +36,9 @@ xcodebuild \
   -destination 'platform=macOS' \
   CODE_SIGNING_ALLOWED=NO \
   build
-
-xcodebuild \
-  -project SimulatorSlimmer.xcodeproj \
-  -scheme SimulatorSlimmer \
-  -destination 'platform=macOS' \
-  -derivedDataPath .build/ui-test-compile \
-  CODE_SIGNING_ALLOWED=NO \
-  build-for-testing
 ```
 
-上面的命令只编译 UI 测试，不启动界面。XCUIAutomation 会真实控制前台窗口，仅在专门的测试环境中显式运行；日常可见验收优先使用 `Computer Use` 做安全页面巡检，避免阻碍当前操作。
+可见界面统一使用 `Computer Use` 操作真实应用进行验收，不通过启动参数注入假设备或脚本化界面状态。
 
 真实模拟器集成测试默认跳过，只能对专用、可丢弃的设备显式启用：
 
