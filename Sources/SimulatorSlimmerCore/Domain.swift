@@ -707,6 +707,26 @@ public enum OperationEventState: String, Codable, Sendable {
   case failed
 }
 
+public enum ServiceChangeProgressState: String, Hashable, Sendable {
+  case running
+  case awaitingVerification
+  case succeeded
+  case skipped
+}
+
+public struct ServiceChangeProgress: Hashable, Sendable {
+  public let change: ServiceChange
+  public let state: ServiceChangeProgressState
+
+  public init(
+    change: ServiceChange,
+    state: ServiceChangeProgressState
+  ) {
+    self.change = change
+    self.state = state
+  }
+}
+
 public struct OperationEvent: Sendable, Identifiable {
   public let id: UUID
   public let operationID: ReceiptID
@@ -716,6 +736,7 @@ public struct OperationEvent: Sendable, Identifiable {
   public let message: String
   public let completedCount: Int?
   public let totalCount: Int?
+  public let serviceProgress: ServiceChangeProgress?
   public let receipt: OperationReceipt?
   public let date: Date
 
@@ -728,6 +749,7 @@ public struct OperationEvent: Sendable, Identifiable {
     message: String,
     completedCount: Int? = nil,
     totalCount: Int? = nil,
+    serviceProgress: ServiceChangeProgress? = nil,
     receipt: OperationReceipt? = nil,
     date: Date = Date()
   ) {
@@ -739,6 +761,7 @@ public struct OperationEvent: Sendable, Identifiable {
     self.message = message
     self.completedCount = completedCount
     self.totalCount = totalCount
+    self.serviceProgress = serviceProgress
     self.receipt = receipt
     self.date = date
   }

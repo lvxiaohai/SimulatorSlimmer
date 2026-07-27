@@ -312,7 +312,7 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       let actionName = enablesAllServices ? "启用全部服务" : "优化"
       var warnings = powerStateWarnings(context.device, action: actionName)
       if !plan.unknownDisabledLabels.isEmpty {
-        warnings.append("发现 \(plan.unknownDisabledLabels.count) 个非本应用管理的禁用项，将保持原样")
+        warnings.append("发现 \(plan.unknownDisabledLabels.count) 个服务目录外的停用项，将保持原样")
       }
       if profile == .extreme {
         warnings.append("极致方案会停用全部可精简服务，部分系统集成功能将不可用")
@@ -329,8 +329,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       if enablesAllServices {
         summary =
           plan.changes.isEmpty
-          ? "当前没有需要启用的受管服务。"
-          : "将启用本应用管理的 \(plan.changes.count) 项已停用服务，随后重启并验证；其他禁用项保持不变。"
+          ? "当前没有需要启用的可管理服务。"
+          : "将启用本应用可管理的 \(plan.changes.count) 项已停用服务，随后重启并验证；服务目录外的停用项保持不变。"
       } else {
         summary =
           plan.changes.isEmpty
@@ -1373,7 +1373,7 @@ extension SimulatorWorkspace {
     }
     if !plan.unknownDisabledLabels.isEmpty {
       receipt.messages.append(
-        "保留 \(plan.unknownDisabledLabels.count) 个非本应用管理的禁用服务"
+        "保留 \(plan.unknownDisabledLabels.count) 个服务目录外的停用服务"
       )
     }
 
@@ -1875,6 +1875,7 @@ extension SimulatorWorkspace {
   ) async throws -> ServiceApplicationResult {
     var attempted: [ServiceChange] = []
     var succeeded: [ServiceChange] = []
+    var completedCount = 0
     for batchStart in stride(
       from: 0,
       to: changes.count,
@@ -1895,7 +1896,7 @@ extension SimulatorWorkspace {
 
       for item in indexedBatch
       where !executableChanges.contains(where: { $0.index == item.index }) {
-        outcomes[item.index] = ServiceChangeOutcome(
+        let outcome = ServiceChangeOutcome(
           appliedChange: AppliedChange(
             change: item.change,
             succeeded: false,
@@ -1903,6 +1904,22 @@ extension SimulatorWorkspace {
           ),
           eventState: .warning,
           eventMessage: "\(item.change.serviceName) 在当前系统运行时中已不存在，已跳过"
+        )
+        outcomes[item.index] = outcome
+        completedCount += 1
+        emit(
+          continuation,
+          operationID: receipt.id,
+          deviceID: receipt.deviceID,
+          phase: .applying,
+          state: outcome.eventState,
+          message: outcome.eventMessage,
+          completedCount: completedCount,
+          totalCount: changes.count,
+          serviceProgress: ServiceChangeProgress(
+            change: item.change,
+            state: .skipped
+          )
         )
       }
 
@@ -1914,6 +1931,19 @@ extension SimulatorWorkspace {
 
         let simulator = self.simulator
         let deviceID = receipt.deviceID
+        for item in executableChanges {
+          emit(
+            continuation,
+            operationID: receipt.id,
+            deviceID: receipt.deviceID,
+            phase: .applying,
+            message: "正在处理 \(item.change.serviceName)",
+            serviceProgress: ServiceChangeProgress(
+              change: item.change,
+              state: .running
+            )
+          )
+        }
         let commandTasks = executableChanges.map { item in
           Task.detached(priority: .userInitiated) {
             do {
@@ -1932,10 +1962,31 @@ extension SimulatorWorkspace {
           }
         }
 
-        var commandResults: [ServiceCommandResult] = []
-        commandResults.reserveCapacity(commandTasks.count)
-        for task in commandTasks {
-          commandResults.append(await task.value)
+        var commandResults: [Int: ServiceCommandResult] = [:]
+        await withTaskGroup(of: ServiceCommandResult.self) { group in
+          for task in commandTasks {
+            group.addTask {
+              await task.value
+            }
+          }
+
+          for await result in group {
+            commandResults[result.item.index] = result
+            completedCount += 1
+            emit(
+              continuation,
+              operationID: receipt.id,
+              deviceID: receipt.deviceID,
+              phase: .applying,
+              message: "已处理 \(result.item.change.serviceName)，等待状态复核",
+              completedCount: completedCount,
+              totalCount: changes.count,
+              serviceProgress: ServiceChangeProgress(
+                change: result.item.change,
+                state: .awaitingVerification
+              )
+            )
+          }
         }
 
         let stateResult = await Task.detached(priority: .userInitiated) {
@@ -1952,13 +2003,14 @@ extension SimulatorWorkspace {
           }
         }.value
 
-        for result in commandResults {
-          let change = result.item.change
+        for item in executableChanges {
+          guard let result = commandResults[item.index] else { continue }
+          let change = item.change
           if let disabledLabels = stateResult.disabledLabels {
             let observedDisabled = disabledLabels.contains(change.label)
             let targetIsDisabled = change.transition == .disable
             if observedDisabled == targetIsDisabled {
-              outcomes[result.item.index] = ServiceChangeOutcome(
+              outcomes[item.index] = ServiceChangeOutcome(
                 appliedChange: AppliedChange(
                   change: change,
                   succeeded: true,
@@ -1971,7 +2023,7 @@ extension SimulatorWorkspace {
               )
             } else {
               let observedState = observedDisabled ? "停用" : "启用"
-              outcomes[result.item.index] = ServiceChangeOutcome(
+              outcomes[item.index] = ServiceChangeOutcome(
                 appliedChange: AppliedChange(
                   change: change,
                   succeeded: false,
@@ -1985,7 +2037,7 @@ extension SimulatorWorkspace {
           } else {
             let errorMessage =
               "命令错误：\(result.errorMessage ?? "无")；复核错误：\(stateResult.errorMessage ?? "无")"
-            outcomes[result.item.index] = ServiceChangeOutcome(
+            outcomes[item.index] = ServiceChangeOutcome(
               appliedChange: AppliedChange(
                 change: change,
                 succeeded: false,
@@ -2008,6 +2060,12 @@ extension SimulatorWorkspace {
         if outcome.appliedChange.succeeded {
           succeeded.append(item.change)
         }
+      }
+      // 每批结果只复核并原子写回一次，崩溃时由 pendingChanges 恢复整批状态。
+      try await receiptStore.save(receipt)
+
+      for item in executableChanges {
+        guard let outcome = outcomes[item.index] else { continue }
         emit(
           continuation,
           operationID: receipt.id,
@@ -2015,13 +2073,13 @@ extension SimulatorWorkspace {
           phase: .applying,
           state: outcome.eventState,
           message: outcome.eventMessage,
-          completedCount: item.index + 1,
-          totalCount: changes.count
+          serviceProgress: ServiceChangeProgress(
+            change: item.change,
+            state: outcome.appliedChange.succeeded ? .succeeded : .skipped
+          )
         )
       }
 
-      // 每批结果都立即原子写回，崩溃时由 pendingChanges 恢复整批状态。
-      try await receiptStore.save(receipt)
       // 用户取消只在当前批次的命令、状态复核和回执写入完成后生效。
       try Task.checkCancellation()
     }
@@ -2084,7 +2142,7 @@ extension SimulatorWorkspace {
         deviceID: receipt.deviceID,
         phase: .verifying,
         state: .succeeded,
-        message: "全部 \(verificationLabels.count) 项受管服务状态验证一致"
+        message: "全部 \(verificationLabels.count) 项可管理服务状态验证一致"
       )
     } else {
       for label in mismatches {
@@ -2256,6 +2314,7 @@ extension SimulatorWorkspace {
     message: String,
     completedCount: Int? = nil,
     totalCount: Int? = nil,
+    serviceProgress: ServiceChangeProgress? = nil,
     receipt: OperationReceipt? = nil
   ) {
     continuation.yield(
@@ -2267,6 +2326,7 @@ extension SimulatorWorkspace {
         message: message,
         completedCount: completedCount,
         totalCount: totalCount,
+        serviceProgress: serviceProgress,
         receipt: receipt
       )
     )

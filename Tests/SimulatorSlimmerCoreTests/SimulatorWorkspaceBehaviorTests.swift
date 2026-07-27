@@ -931,6 +931,68 @@ struct SimulatorWorkspaceBehaviorTests {
     #expect(await simulator.servicePresenceProbeCount() == 1)
   }
 
+  @Test("并发服务完成后逐项更新进度")
+  func concurrentServiceChangesReportProgressIndividually() async throws {
+    let services = (0..<4).map {
+      makeWorkspaceService(id: "progress-\($0)", label: "com.test.progress.\($0)")
+    }
+    let simulator = WorkspaceSimulatorSpy(
+      device: makeWorkspaceDevice(
+        id: "79797979-8A8A-4B9B-8C8C-DEDEDEDEDEDE",
+        state: .booted
+      ),
+      serviceDelays: Dictionary(
+        uniqueKeysWithValues: zip(
+          services.map(\.label),
+          [
+            Duration.milliseconds(10),
+            .milliseconds(160),
+            .milliseconds(310),
+            .milliseconds(460),
+          ]
+        )
+      )
+    )
+    let workspace = makeWorkspace(
+      simulator: simulator,
+      receiptStore: WorkspaceReceiptStoreSpy(),
+      services: services
+    )
+    let operation = SimulatorOperation.optimize(
+      deviceID: await simulator.deviceID,
+      profile: .recommended,
+      customDisabledLabels: []
+    )
+
+    _ = try await workspace.preview(operation)
+    let disabledLabelReadsBeforeExecution = await simulator.disabledLabelReadCount()
+    var finishedCommandCounts: [Int] = []
+    var serviceProgressEvents: [ServiceChangeProgress] = []
+    for try await event in await workspace.perform(operation)
+    where event.phase == .applying {
+      if let serviceProgress = event.serviceProgress {
+        serviceProgressEvents.append(serviceProgress)
+      }
+      if event.serviceProgress?.state == .awaitingVerification,
+        event.completedCount != nil
+      {
+        finishedCommandCounts.append(await simulator.completedServiceCommandCount())
+      }
+    }
+
+    #expect(finishedCommandCounts == [1, 2, 3, 4])
+    #expect(await simulator.maximumConcurrentServiceCommands() == 4)
+    #expect(
+      await simulator.disabledLabelReadCount() - disabledLabelReadsBeforeExecution == 3
+    )
+    for service in services {
+      let states = serviceProgressEvents
+        .filter { $0.change.label == service.label }
+        .map(\.state)
+      #expect(states == [.running, .awaitingVerification, .succeeded])
+    }
+  }
+
   @Test("服务命令与复核均失败时记录并跳过")
   func ambiguousServiceStepIsRecordedAndSkipped() async throws {
     let service = makeWorkspaceService(id: "ambiguous", label: "com.test.ambiguous")
@@ -1701,6 +1763,7 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
   private var disabledLabels: Set<String>
   private let failingServiceLabels: Set<String>
   private let serviceDelay: Duration
+  private let serviceDelays: [String: Duration]
   private var failDisabledLabelReads: Bool
   private var failDisabledLabelReadsAfterServiceCommand: Bool
   private let disabledServicesAppearAbsent: Bool
@@ -1709,6 +1772,8 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
   private var recordedServiceCommands: [RecordedServiceCommand] = []
   private var activeServiceCommandCount = 0
   private var maximumActiveServiceCommandCount = 0
+  private var completedServiceCommandCountValue = 0
+  private var disabledLabelReadCountValue = 0
   private var presenceProbeCount = 0
   private let firstInventoryDelay: Duration?
   private var inventoryCallCount = 0
@@ -1719,6 +1784,7 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
     disabledLabels: Set<String> = [],
     failingServiceLabels: Set<String> = [],
     serviceDelay: Duration = .zero,
+    serviceDelays: [String: Duration] = [:],
     failDisabledLabelReads: Bool = false,
     failDisabledLabelReadsAfterServiceCommand: Bool = false,
     disabledServicesAppearAbsent: Bool = false,
@@ -1729,6 +1795,7 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
     self.disabledLabels = disabledLabels
     self.failingServiceLabels = failingServiceLabels
     self.serviceDelay = serviceDelay
+    self.serviceDelays = serviceDelays
     self.failDisabledLabelReads = failDisabledLabelReads
     self.failDisabledLabelReadsAfterServiceCommand =
       failDisabledLabelReadsAfterServiceCommand
@@ -1772,6 +1839,7 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
     guard id == device.id else {
       throw SimulatorWorkspaceError.deviceNotFound(id)
     }
+    disabledLabelReadCountValue += 1
     if failDisabledLabelReads
       || (failDisabledLabelReadsAfterServiceCommand && !recordedServiceCommands.isEmpty)
     {
@@ -1806,7 +1874,8 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
     recordedServiceCommands.append(
       RecordedServiceCommand(label: label, transition: transition.rawValue)
     )
-    try await Task.sleep(for: serviceDelay)
+    try await Task.sleep(for: serviceDelays[label] ?? serviceDelay)
+    completedServiceCommandCountValue += 1
     if failingServiceLabels.contains(label) {
       throw WorkspaceTestError.simulatedFailure
     }
@@ -1858,6 +1927,14 @@ private actor WorkspaceSimulatorSpy: SimulatorControlling {
 
   func maximumConcurrentServiceCommands() -> Int {
     maximumActiveServiceCommandCount
+  }
+
+  func completedServiceCommandCount() -> Int {
+    completedServiceCommandCountValue
+  }
+
+  func disabledLabelReadCount() -> Int {
+    disabledLabelReadCountValue
   }
 
   func disabledServiceLabels() -> Set<String> { disabledLabels }
