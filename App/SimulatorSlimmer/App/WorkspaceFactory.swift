@@ -23,13 +23,14 @@ enum WorkspaceFactory {
     private var tablet: SimulatorDevice
     private var createdDevices: [SimulatorDevice] = []
     private var receipts: [OperationReceipt] = []
+    private var disabledServiceLabelsByDevice: [SimulatorID: Set<String>] = [:]
     private var storageScanned = false
 
     private enum Mode {
       case ready
       case empty
       case error
-      case partial
+      case skippedServiceFailure
       case interrupted
       case unsupported
     }
@@ -45,7 +46,7 @@ enum WorkspaceFactory {
       } else if arguments.contains("--ui-testing-error") {
         mode = .error
       } else if arguments.contains("--ui-testing-partial") {
-        mode = .partial
+        mode = .skippedServiceFailure
       } else if arguments.contains("--ui-testing-interrupted") {
         mode = .interrupted
       } else if arguments.contains("--ui-testing-unsupported") {
@@ -187,7 +188,14 @@ enum WorkspaceFactory {
         throw SimulatorWorkspaceError.deviceNotFound(deviceID)
       }
 
-      let services = Self.services
+      let disabledLabels = disabledServiceLabelsByDevice[deviceID] ?? []
+      let services = Self.services.map { state in
+        ServiceState(
+          service: state.service,
+          isDisabled: disabledLabels.contains(state.service.label),
+          isPresent: state.isPresent
+        )
+      }
       let plans = Dictionary(
         uniqueKeysWithValues: OptimizationProfile.allCases.map { profile in
           let changes = Self.changes(for: profile, services: services)
@@ -314,9 +322,9 @@ enum WorkspaceFactory {
           : snapshot.plans[profile]?.changes ?? []
         return OperationPreview(
           operation: operation,
-          title: profile == .allEnabled ? "启用全部服务" : "优化计划",
-          summary: profile == .allEnabled
-            ? "启用本应用可管理的全部服务；非本应用管理的禁用项保持不变。"
+          title: profile == .enableAllServices ? "启用全部服务" : "优化计划",
+          summary: profile == .enableAllServices
+            ? "启用本应用管理的服务；其他禁用项保持不变。"
             : "仅修改预览中列出的模拟器后台服务；完成后会重新读取状态并保存恢复基线。",
           serviceChanges: changes,
           warnings: profile == .extreme ? ["极致方案会停用全部可精简服务。"] : []
@@ -429,27 +437,54 @@ enum WorkspaceFactory {
         .openSimulator, .erase, .delete, .clone:
         break
       }
-      let isPartial =
-        mode == .partial && operation.kind == .optimize && operation.deviceID == tablet.id
-      let snapshotChanges = Self.changes(for: .recommended, services: Self.services)
+      let services = serviceStates(for: operation.deviceID)
+      let snapshotChanges: [ServiceChange]
+      switch operation {
+      case .optimize(_, let profile, let customDisabledLabels):
+        snapshotChanges =
+          profile == .custom
+          ? Self.customChanges(
+            selectedLabels: customDisabledLabels,
+            services: services
+          )
+          : Self.changes(for: profile, services: services)
+      default:
+        snapshotChanges = []
+      }
+      let shouldSkipLastChange =
+        mode == .skippedServiceFailure
+        && operation.deviceID == tablet.id
+        && !snapshotChanges.isEmpty
       let applied =
         operation.kind == .optimize
         ? snapshotChanges.map {
           AppliedChange(
             change: $0,
-            succeeded: !isPartial || $0.id != snapshotChanges.last?.id,
-            errorMessage: isPartial && $0.id == snapshotChanges.last?.id
-              ? "服务在重启后恢复为启用状态"
+            succeeded: !shouldSkipLastChange || $0.id != snapshotChanges.last?.id,
+            errorMessage: shouldSkipLastChange && $0.id == snapshotChanges.last?.id
+              ? "服务在重启后恢复为启用状态，已跳过"
               : nil
           )
         }
         : []
+      if operation.kind == .optimize {
+        var disabledLabels = disabledServiceLabelsByDevice[operation.deviceID] ?? []
+        for appliedChange in applied where appliedChange.succeeded {
+          switch appliedChange.change.transition {
+          case .disable:
+            disabledLabels.insert(appliedChange.change.label)
+          case .enable:
+            disabledLabels.remove(appliedChange.change.label)
+          }
+        }
+        disabledServiceLabelsByDevice[operation.deviceID] = disabledLabels
+      }
       let receipt = OperationReceipt(
         id: operationID,
         kind: operation.kind,
         deviceID: operation.deviceID,
-        deviceName: operation.deviceID == phone.id ? phone.name : tablet.name,
-        status: isPartial ? .partial : .succeeded,
+        deviceName: currentDevice(for: operation.deviceID)?.name ?? "未知模拟器",
+        status: .succeeded,
         finishedAt: Date(),
         originalDeviceState: originalState,
         finalDeviceState: currentDevice(for: operation.deviceID)?.state ?? originalState,
@@ -461,8 +496,11 @@ enum WorkspaceFactory {
           ? MemorySnapshot(bytes: 2_761_474_048, processCount: 151)
           : nil,
         reclaimedBytes: operation.kind == .optimize ? 1_223_098_368 : nil,
-        messages: isPartial
-          ? ["17 项变更已验证。", "1 项变更未生效，可根据基线恢复。"]
+        messages: shouldSkipLastChange
+          ? [
+            "\(applied.filter(\.succeeded).count) 项变更已完成。",
+            "\(applied.filter { !$0.succeeded }.count) 项变更失败，已跳过。",
+          ]
           : ["操作完成。", "最终状态已验证并保存。"]
       )
       receipts.insert(receipt, at: 0)
@@ -473,6 +511,17 @@ enum WorkspaceFactory {
       if deviceID == phone.id { return phone }
       if deviceID == tablet.id { return tablet }
       return createdDevices.first { $0.id == deviceID }
+    }
+
+    private func serviceStates(for deviceID: SimulatorID) -> [ServiceState] {
+      let disabledLabels = disabledServiceLabelsByDevice[deviceID] ?? []
+      return Self.services.map { state in
+        ServiceState(
+          service: state.service,
+          isDisabled: disabledLabels.contains(state.service.label),
+          isPresent: state.isPresent
+        )
+      }
     }
 
     private func updateDevice(_ deviceID: SimulatorID, state: SimulatorState) {
@@ -604,40 +653,52 @@ enum WorkspaceFactory {
       for profile: OptimizationProfile,
       services: [ServiceState]
     ) -> [ServiceChange] {
-      if profile == .allEnabled {
-        return services.compactMap { state in
-          guard
-            state.isDisabled,
-            !state.service.alwaysEnabled,
-            state.service.risk != .protected
-          else { return nil }
-          return ServiceChange(
-            label: state.service.label,
-            serviceName: state.service.name,
-            categoryID: state.service.categoryID,
-            risk: state.service.risk,
-            transition: .enable,
-            impact: state.service.impact,
-            currentDisabled: true,
-            targetDisabled: false
-          )
-        }
+      let statesByLabel = Dictionary(
+        uniqueKeysWithValues: services.map { ($0.service.label, $0) }
+      )
+      let protectedLabels = Set(
+        services
+          .filter { $0.service.alwaysEnabled || $0.service.risk == .protected }
+          .map(\.service.label)
+      )
+      let mutableStates = services.filter {
+        !$0.service.alwaysEnabled && $0.service.risk != .protected
       }
-      return services.compactMap { state in
-        guard
-          !state.service.alwaysEnabled,
-          state.service.risk != .protected,
-          profile == .custom || state.service.profiles.contains(profile)
-        else { return nil }
+      let mutableLabels = Set(mutableStates.map(\.service.label))
+      let currentlyDisabled = Set(services.filter(\.isDisabled).map(\.service.label))
+      let desiredDisabled: Set<String> =
+        switch profile {
+        case .recommended, .extreme:
+          Set(
+            mutableStates
+              .filter { $0.service.profiles.contains(profile) }
+              .map(\.service.label)
+          )
+        case .custom:
+          currentlyDisabled.intersection(mutableLabels)
+        case .enableAllServices:
+          []
+        }
+
+      let labelsToDisable = desiredDisabled.subtracting(currentlyDisabled)
+      let labelsToEnable =
+        currentlyDisabled
+        .intersection(mutableLabels)
+        .subtracting(desiredDisabled)
+        .union(currentlyDisabled.intersection(protectedLabels))
+
+      return (labelsToDisable.sorted() + labelsToEnable.sorted()).compactMap { label in
+        guard let state = statesByLabel[label] else { return nil }
+        let targetDisabled = labelsToDisable.contains(label)
         return ServiceChange(
-          label: state.service.label,
+          label: label,
           serviceName: state.service.name,
           categoryID: state.service.categoryID,
           risk: state.service.risk,
-          transition: .disable,
+          transition: targetDisabled ? .disable : .enable,
           impact: state.service.impact,
-          currentDisabled: state.isDisabled,
-          targetDisabled: true
+          currentDisabled: !targetDisabled,
+          targetDisabled: targetDisabled
         )
       }
     }

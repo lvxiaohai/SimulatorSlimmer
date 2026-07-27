@@ -371,7 +371,7 @@ public enum OptimizationProfile: String, Codable, CaseIterable, Hashable, Sendab
   case recommended
   case extreme
   case custom
-  case allEnabled
+  case enableAllServices = "allEnabled"
 
   public var id: String { rawValue }
 
@@ -385,8 +385,8 @@ public enum OptimizationProfile: String, Codable, CaseIterable, Hashable, Sendab
       self = .extreme
     case Self.custom.rawValue:
       self = .custom
-    case Self.allEnabled.rawValue:
-      self = .allEnabled
+    case Self.enableAllServices.rawValue:
+      self = .enableAllServices
     default:
       throw DecodingError.dataCorruptedError(
         in: container,

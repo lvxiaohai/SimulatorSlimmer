@@ -233,7 +233,7 @@ struct OperationPreviewSheet: View {
   }
 
   private var impactItems: [PreviewImpactItem] {
-    return switch preview.operation.kind {
+    switch preview.operation.kind {
     case .delete:
       [
         PreviewImpactItem(
@@ -431,7 +431,7 @@ struct OperationPreviewSheet: View {
 
   private var executeTitle: String {
     if case .optimize(_, let profile, _) = preview.operation,
-      profile == .allEnabled
+      profile == .enableAllServices
     {
       return L10n.text("action.enable-all-services")
     }

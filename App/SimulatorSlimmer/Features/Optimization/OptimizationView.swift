@@ -16,7 +16,6 @@ struct OptimizationView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
-        operationState
         metrics
         profilePanel
       }
@@ -25,35 +24,6 @@ struct OptimizationView: View {
     }
     .scrollIndicators(.visible)
     .accessibilityIdentifier("optimization.page")
-  }
-
-  @ViewBuilder
-  private var operationState: some View {
-    if let operation = model.operations[snapshot.device.id],
-      isOptimizationOperation(operation.operation.kind)
-    {
-      if let receipt = operation.receipt {
-        OperationResultBanner(receipt: receipt)
-      } else if let failure = operation.failureMessage {
-        NoticeStrip(
-          tone: .error,
-          title: L10n.text("result.failed.title"),
-          message: failure,
-          actionTitle: L10n.text("action.retry"),
-          action: model.runOptimization
-        )
-      }
-    }
-  }
-
-  private func isOptimizationOperation(_ kind: OperationKind) -> Bool {
-    switch kind {
-    case .preflight, .optimize, .verify, .restore:
-      true
-    case .scanStorage, .cleanStorage, .boot, .shutdown, .erase, .delete, .clone,
-      .openSimulator:
-      false
-    }
   }
 
   private var metrics: some View {
@@ -152,41 +122,10 @@ struct OptimizationView: View {
   }
 
   private var profileActions: some View {
-    ViewThatFits(in: .horizontal) {
-      HStack(spacing: 10) {
-        continuationAction
-        Spacer()
-        previewAction
-        optimizeAction
-      }
-      VStack(alignment: .trailing, spacing: 4) {
-        continuationAction
-          .frame(maxWidth: .infinity, alignment: .leading)
-        HStack(spacing: 10) {
-          Spacer()
-          previewAction
-          optimizeAction
-        }
-      }
-    }
-  }
-
-  @ViewBuilder
-  private var continuationAction: some View {
-    if let latestReceipt = model.latestVerifiableReceipt {
-      Button {
-        model.continueLatestVerification()
-      } label: {
-        Label("action.continue-verification", systemImage: "checkmark.magnifyingglass")
-      }
-      .disabled(isBusy)
-      .minimumHitArea()
-      .accessibilityHint(
-        L10n.formatted(
-          "action.continue-verification.hint",
-          latestReceipt.startedAt.formatted(date: .abbreviated, time: .shortened)
-        )
-      )
+    HStack(spacing: 10) {
+      Spacer()
+      previewAction
+      optimizeAction
     }
   }
 
@@ -212,10 +151,10 @@ struct OptimizationView: View {
         loadingLabel
       } else {
         Label(
-          model.selectedProfile == .allEnabled
+          model.selectedProfile == .enableAllServices
             ? L10n.text("action.enable-all-services")
             : L10n.text("action.optimize-device"),
-          systemImage: model.selectedProfile == .allEnabled
+          systemImage: model.selectedProfile == .enableAllServices
             ? "play.circle"
             : "gauge.with.dots.needle.50percent"
         )
@@ -224,7 +163,7 @@ struct OptimizationView: View {
     .buttonStyle(PressablePrimaryButtonStyle())
     .disabled(isBusy || !snapshot.device.isAvailable)
     .accessibilityHint(
-      model.selectedProfile == .allEnabled
+      model.selectedProfile == .enableAllServices
         ? L10n.text("action.enable-all-services.hint")
         : L10n.text("action.optimize-device.hint")
     )

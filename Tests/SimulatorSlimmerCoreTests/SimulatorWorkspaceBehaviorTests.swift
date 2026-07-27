@@ -116,8 +116,8 @@ struct SimulatorWorkspaceBehaviorTests {
     #expect(events.last?.state == .failed)
   }
 
-  @Test("单项服务失败时保留成功项并生成部分完成回执")
-  func serviceFailureProducesPartialReceipt() async throws {
+  @Test("单项服务失败时记录并跳过，其他变更继续完成")
+  func serviceFailureIsSkippedWithoutFailingOperation() async throws {
     let alpha = makeWorkspaceService(id: "alpha", label: "com.test.alpha")
     let beta = makeWorkspaceService(id: "beta", label: "com.test.beta")
     let simulator = WorkspaceSimulatorSpy(
@@ -142,7 +142,7 @@ struct SimulatorWorkspaceBehaviorTests {
     let events = try await confirmedCollect(operation, using: workspace)
 
     let finalReceipt = try #require(events.last?.receipt)
-    #expect(finalReceipt.status == .partial)
+    #expect(finalReceipt.status == .succeeded)
     #expect(finalReceipt.appliedChanges.count == 2)
     #expect(
       finalReceipt.appliedChanges.first { $0.change.label == alpha.label }?.succeeded
@@ -153,8 +153,8 @@ struct SimulatorWorkspaceBehaviorTests {
         == false
     )
     #expect(await simulator.disabledServiceLabels() == [alpha.label])
-    #expect(events.contains { $0.phase == .applying && $0.state == .failed })
-    #expect(events.last?.state == .warning)
+    #expect(events.contains { $0.phase == .applying && $0.state == .warning })
+    #expect(events.last?.state == .succeeded)
   }
 
   @Test("恢复只操作源回执中成功触及的服务")
@@ -844,8 +844,8 @@ struct SimulatorWorkspaceBehaviorTests {
     #expect(await simulator.disabledServiceLabels() == [alpha.label])
   }
 
-  @Test("首项服务命令与复核均失败时保留待确认步骤")
-  func ambiguousFirstServiceStepRemainsPendingUntilVerified() async throws {
+  @Test("服务命令与复核均失败时记录并跳过")
+  func ambiguousServiceStepIsRecordedAndSkipped() async throws {
     let service = makeWorkspaceService(id: "ambiguous", label: "com.test.ambiguous")
     let simulator = WorkspaceSimulatorSpy(
       device: makeWorkspaceDevice(
@@ -867,32 +867,18 @@ struct SimulatorWorkspaceBehaviorTests {
       profile: .recommended,
       customDisabledLabels: []
     )
-    let failedEvents = try await confirmedCollect(operation, using: workspace)
-    let failedReceipt = try #require(failedEvents.last?.receipt)
-    #expect(failedReceipt.status == .partial)
-    #expect(failedReceipt.pendingChange?.label == service.label)
+    let events = try await confirmedCollect(operation, using: workspace)
+    let receipt = try #require(events.last?.receipt)
+    #expect(receipt.status == .succeeded)
+    #expect(receipt.pendingChange == nil)
+    #expect(receipt.appliedChanges.count == 1)
+    #expect(receipt.appliedChanges.first?.change.label == service.label)
+    #expect(receipt.appliedChanges.first?.succeeded == false)
+    #expect(receipt.appliedChanges.first?.errorMessage?.contains("已跳过") == true)
+    #expect(events.contains { $0.phase == .applying && $0.state == .warning })
 
-    let pendingOverview = try await workspace.overview()
-    #expect(pendingOverview.pendingReceipts.map(\.id) == [failedReceipt.id])
-    let preview = try await workspace.preview(
-      .verify(deviceID: await simulator.deviceID, receiptID: failedReceipt.id)
-    )
-    #expect(preview.serviceChanges.map(\.label) == [service.label])
-
-    await simulator.allowDisabledLabelReads()
-    _ = try await collect(
-      await workspace.perform(
-        .verify(deviceID: await simulator.deviceID, receiptID: failedReceipt.id)
-      )
-    )
-
-    let resolvedOverview = try await workspace.overview()
-    #expect(resolvedOverview.pendingReceipts.isEmpty)
-    let resolvedSource = try #require(
-      resolvedOverview.recentReceipts.first { $0.id == failedReceipt.id }
-    )
-    #expect(resolvedSource.pendingChange == nil)
-    #expect(resolvedSource.appliedChanges.last?.succeeded == false)
+    let overview = try await workspace.overview()
+    #expect(overview.pendingReceipts.isEmpty)
   }
 
   @Test("关机设备的精确预览使用回执并恢复原状态")
@@ -1480,8 +1466,8 @@ struct SimulatorWorkspaceBehaviorTests {
     #expect(await receiptStore.receiptsSnapshot().isEmpty)
   }
 
-  @Test("最终验证会发现预览时已满足的受管服务被外部修改")
-  func finalVerificationCoversEntireManagedPlan() async throws {
+  @Test("最终验证失败的服务记录并跳过")
+  func finalVerificationFailureIsRecordedAndSkipped() async throws {
     let alpha = makeWorkspaceService(id: "verify-alpha", label: "com.test.verify.alpha")
     let beta = makeWorkspaceService(id: "verify-beta", label: "com.test.verify.beta")
     let simulator = WorkspaceSimulatorSpy(
@@ -1489,7 +1475,6 @@ struct SimulatorWorkspaceBehaviorTests {
         id: "34343434-5656-4789-8ABC-DEFABCDEF012",
         state: .booted
       ),
-      disabledLabels: [beta.label],
       serviceToEnableOnRestart: beta.label
     )
     let workspace = makeWorkspace(
@@ -1506,9 +1491,16 @@ struct SimulatorWorkspaceBehaviorTests {
     let events = try await confirmedCollect(operation, using: workspace)
 
     let receipt = try #require(events.last?.receipt)
-    #expect(receipt.status == .partial)
+    #expect(receipt.status == .succeeded)
     #expect(receipt.messages.contains { $0.contains(beta.label) })
-    #expect(await simulator.serviceCommands().map(\.label) == [alpha.label])
+    #expect(
+      receipt.appliedChanges.first { $0.change.label == beta.label }?.succeeded == false
+    )
+    #expect(
+      receipt.appliedChanges.first { $0.change.label == beta.label }?.errorMessage?
+        .contains("已跳过") == true
+    )
+    #expect(await simulator.serviceCommands().map(\.label) == [alpha.label, beta.label])
   }
 
   @Test("重复检查复用同一设备的服务存在性结果")

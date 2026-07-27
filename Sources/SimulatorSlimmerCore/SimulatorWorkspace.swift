@@ -307,7 +307,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
         intendedOriginalDeviceState: context.device.state,
         previewGeneration: previewGeneration
       )
-      let actionName = profile == .allEnabled ? "启用全部服务" : "优化"
+      let enablesAllServices = profile == .enableAllServices
+      let actionName = enablesAllServices ? "启用全部服务" : "优化"
       var warnings = powerStateWarnings(context.device, action: actionName)
       if !plan.unknownDisabledLabels.isEmpty {
         warnings.append("发现 \(plan.unknownDisabledLabels.count) 个非本应用管理的禁用项，将保持原样")
@@ -319,21 +320,26 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
       {
         warnings.append("该方案会停用高影响服务，请先确认相关能力不在本次测试范围内")
       }
+      let title =
+        enablesAllServices
+        ? "启用 \(context.device.name) 的全部服务"
+        : "优化 \(context.device.name)"
+      let summary: String
+      if enablesAllServices {
+        summary =
+          plan.changes.isEmpty
+          ? "当前没有需要启用的受管服务。"
+          : "将启用本应用管理的 \(plan.changes.count) 项已停用服务，随后重启并验证；其他禁用项保持不变。"
+      } else {
+        summary =
+          plan.changes.isEmpty
+          ? "设备已经符合所选方案，不需要修改服务。"
+          : "将按严格允许列表执行 \(plan.changes.count) 项差异，随后重启、验证并保存恢复基线。"
+      }
       return OperationPreview(
         operation: operation,
-        title: profile == .allEnabled
-          ? "启用 \(context.device.name) 的全部服务"
-          : "优化 \(context.device.name)",
-        summary: {
-          if profile == .allEnabled {
-            return plan.changes.isEmpty
-              ? "当前没有需要启用的受管服务。"
-              : "将启用本应用可管理的 \(plan.changes.count) 项已停用服务，随后重启并验证；非本应用管理的禁用项保持不变。"
-          }
-          return plan.changes.isEmpty
-            ? "设备已经符合所选方案，不需要修改服务。"
-            : "将按严格允许列表执行 \(plan.changes.count) 项差异，随后重启、验证并保存恢复基线。"
-        }(),
+        title: title,
+        summary: summary,
         serviceChanges: plan.changes,
         warnings: warnings,
         requiresConfirmation: true
@@ -1390,7 +1396,7 @@ extension SimulatorWorkspace {
     try await restartAndVerify(
       succeeded,
       expectedDisabledLabels: plan.desiredDisabledLabels,
-      verificationLabels: plan.managedLabels,
+      verificationLabels: Set(succeeded.map(\.label)),
       receipt: &receipt,
       continuation: continuation
     )
@@ -1507,7 +1513,7 @@ extension SimulatorWorkspace {
     try await restartAndVerify(
       succeeded,
       expectedDisabledLabels: source.baselineDisabledLabels,
-      verificationLabels: touchedLabels.intersection(applicableLabels),
+      verificationLabels: Set(succeeded.map(\.label)),
       receipt: &receipt,
       continuation: continuation
     )
@@ -1869,13 +1875,35 @@ extension SimulatorWorkspace {
         // 禁用后的 job 通常不再加载；目录与回执共同约束了标签，enable 是幂等恢复。
         stillPresent = true
       } else {
-        stillPresent = try await simulator.presentServiceLabels(
-          [change.label],
-          for: receipt.deviceID
-        ).contains(change.label)
+        do {
+          stillPresent = try await simulator.presentServiceLabels(
+            [change.label],
+            for: receipt.deviceID
+          ).contains(change.label)
+        } catch {
+          try Task.checkCancellation()
+          receipt.appliedChanges.append(
+            AppliedChange(
+              change: change,
+              succeeded: false,
+              errorMessage: "读取服务状态失败，已跳过：\(error.localizedDescription)"
+            )
+          )
+          try await receiptStore.save(receipt)
+          emit(
+            continuation,
+            operationID: receipt.id,
+            deviceID: receipt.deviceID,
+            phase: .applying,
+            state: .warning,
+            message: "\(change.serviceName) 状态读取失败，已跳过",
+            completedCount: index + 1,
+            totalCount: changes.count
+          )
+          continue
+        }
       }
       guard stillPresent else {
-        receipt.status = .partial
         receipt.appliedChanges.append(
           AppliedChange(
             change: change,
@@ -1931,18 +1959,13 @@ extension SimulatorWorkspace {
 
       let targetIsDisabled = change.transition == .disable
       let reachedTarget = result.observedDisabled == targetIsDisabled
-      let commandSucceededWithoutObservation =
-        result.commandError == nil && result.observedDisabled == nil
 
-      if reachedTarget || commandSucceededWithoutObservation {
-        let verificationWarning = result.observationError.map {
-          "命令已完成，但即时状态复核失败：\($0)；稍后会在重启后再次验证"
-        }
+      if reachedTarget {
         receipt.appliedChanges.append(
           AppliedChange(
             change: change,
             succeeded: true,
-            errorMessage: result.commandError ?? verificationWarning
+            errorMessage: result.commandError
           )
         )
         receipt.pendingChange = nil
@@ -1964,7 +1987,6 @@ extension SimulatorWorkspace {
         let errorMessage =
           result.commandError
           ?? "状态复核不一致，当前仍为\(observedState)"
-        receipt.status = .partial
         receipt.appliedChanges.append(
           AppliedChange(
             change: change,
@@ -1978,18 +2000,34 @@ extension SimulatorWorkspace {
           operationID: receipt.id,
           deviceID: receipt.deviceID,
           phase: .applying,
-          state: .failed,
-          message: "\(change.serviceName) 修改失败：\(errorMessage)",
+          state: .warning,
+          message: "\(change.serviceName) 修改未生效，已跳过",
           completedCount: index + 1,
           totalCount: changes.count
         )
       } else {
-        receipt.messages.append(
-          "服务变更结果未知：\(change.label)；命令错误：\(result.commandError ?? "无")；复核错误：\(result.observationError ?? "无")"
+        let errorMessage =
+          "命令错误：\(result.commandError ?? "无")；复核错误：\(result.observationError ?? "无")"
+        receipt.appliedChanges.append(
+          AppliedChange(
+            change: change,
+            succeeded: false,
+            errorMessage: "结果无法确认，已跳过：\(errorMessage)"
+          )
         )
-        try await receiptStore.save(receipt)
-        throw SimulatorWorkspaceError.invalidOperation(
-          "\(change.serviceName) 的命令和状态复核均失败；已保留待确认步骤"
+        receipt.pendingChange = nil
+        receipt.messages.append(
+          "服务变更结果无法确认，已跳过：\(change.label)；\(errorMessage)"
+        )
+        emit(
+          continuation,
+          operationID: receipt.id,
+          deviceID: receipt.deviceID,
+          phase: .applying,
+          state: .warning,
+          message: "\(change.serviceName) 结果无法确认，已跳过",
+          completedCount: index + 1,
+          totalCount: changes.count
         )
       }
       // 每项结果都立即原子写回，避免崩溃后丢失部分状态。
@@ -2027,7 +2065,25 @@ extension SimulatorWorkspace {
       phase: .verifying,
       message: "正在逐项验证服务状态"
     )
-    let actualDisabled = try await simulator.disabledLabels(for: receipt.deviceID)
+    let actualDisabled: Set<String>
+    do {
+      actualDisabled = try await simulator.disabledLabels(for: receipt.deviceID)
+    } catch {
+      try Task.checkCancellation()
+      receipt.messages.append("最终状态读取失败，已跳过验证：\(error.localizedDescription)")
+      try await receiptStore.save(receipt)
+      emit(
+        continuation,
+        operationID: receipt.id,
+        deviceID: receipt.deviceID,
+        phase: .verifying,
+        state: .warning,
+        message: "最终状态读取失败，已跳过",
+        completedCount: verificationLabels.count,
+        totalCount: verificationLabels.count
+      )
+      return
+    }
     let mismatches = verificationLabels.filter { label in
       actualDisabled.contains(label) != expectedDisabledLabels.contains(label)
     }
@@ -2041,9 +2097,23 @@ extension SimulatorWorkspace {
         message: "全部 \(verificationLabels.count) 项受管服务状态验证一致"
       )
     } else {
-      receipt.status = .partial
+      for label in mismatches {
+        guard
+          let index = receipt.appliedChanges.lastIndex(where: {
+            $0.change.label == label && $0.succeeded
+          })
+        else { continue }
+        let applied = receipt.appliedChanges[index]
+        receipt.appliedChanges[index] = AppliedChange(
+          id: applied.id,
+          change: applied.change,
+          succeeded: false,
+          errorMessage: "重启后未保持目标状态，已跳过",
+          appliedAt: applied.appliedAt
+        )
+      }
       receipt.messages.append(
-        "验证不一致：\(mismatches.sorted().joined(separator: ", "))"
+        "验证未通过并已跳过：\(mismatches.sorted().joined(separator: ", "))"
       )
       try await receiptStore.save(receipt)
       emit(
@@ -2052,7 +2122,7 @@ extension SimulatorWorkspace {
         deviceID: receipt.deviceID,
         phase: .verifying,
         state: .warning,
-        message: "有 \(mismatches.count) 项状态与计划不一致，请重新检查当前状态"
+        message: "有 \(mismatches.count) 项未保持目标状态，已跳过"
       )
     }
   }

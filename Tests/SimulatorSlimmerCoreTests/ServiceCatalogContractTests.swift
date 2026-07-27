@@ -91,7 +91,7 @@ struct ServiceCatalogContractTests {
         #expect(service.profiles.contains(.recommended) == !shouldRemainEnabled)
       }
       #expect(!service.profiles.contains(.custom))
-      #expect(!service.profiles.contains(.allEnabled))
+      #expect(!service.profiles.contains(.enableAllServices))
     }
   }
 

@@ -450,8 +450,8 @@ private struct CreateSimulatorSheet: View {
               text: $name,
               prompt: Text(namePlaceholder)
             )
-              .textFieldStyle(.roundedBorder)
-              .frame(width: 220)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 220)
           }
         }
       }
@@ -574,7 +574,7 @@ private struct BatchOptimizationView: View {
   @Bindable var model: AppModel
 
   private let profiles: [OptimizationProfile] = [
-    .recommended, .extreme, .custom, .allEnabled,
+    .recommended, .extreme, .custom, .enableAllServices,
   ]
 
   private var runIsActive: Bool { model.batchRun?.isRunning == true }
@@ -696,7 +696,7 @@ private struct BatchOptimizationView: View {
             Label("batch.custom-selection.unavailable", systemImage: "exclamationmark.circle")
               .font(.callout)
               .foregroundStyle(.secondary)
-            .frame(minHeight: InstrumentTheme.minimumHitSize)
+              .frame(minHeight: InstrumentTheme.minimumHitSize)
           }
         }
 
@@ -788,7 +788,7 @@ private struct BatchOptimizationView: View {
       "bolt.fill"
     case .custom:
       "slider.horizontal.3"
-    case .allEnabled:
+    case .enableAllServices:
       "play.circle.fill"
     default:
       "info.circle.fill"

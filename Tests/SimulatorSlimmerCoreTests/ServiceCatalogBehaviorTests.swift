@@ -25,23 +25,26 @@ struct ServiceCatalogBehaviorTests {
     #expect(efficient == .extreme)
     #expect(String(decoding: try encoder.encode(efficient), as: UTF8.self) == "\"extreme\"")
 
-    let allEnabled = try decoder.decode(
+    let enableAllServices = try decoder.decode(
       OptimizationProfile.self,
       from: Data("\"allEnabled\"".utf8)
     )
-    #expect(allEnabled == .allEnabled)
-    #expect(String(decoding: try encoder.encode(allEnabled), as: UTF8.self) == "\"allEnabled\"")
+    #expect(enableAllServices == .enableAllServices)
+    #expect(
+      String(decoding: try encoder.encode(enableAllServices), as: UTF8.self)
+        == "\"allEnabled\""
+    )
   }
 
   @Test("全部启用只恢复目录内可管理服务")
-  func allEnabledRestoresOnlyManagedServices() {
+  func enableAllServicesRestoresOnlyManagedServices() {
     let catalog = makeBehaviorCatalog()
     let deviceID = SimulatorID(rawValue: "11111111-2222-4333-8444-555555555555")
 
     let plan = catalog.plan(
       deviceID: deviceID,
       runtimeVersion: "26.5",
-      profile: .allEnabled,
+      profile: .enableAllServices,
       currentDisabledLabels: [
         "com.test.low",
         "com.test.moderate",

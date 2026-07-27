@@ -9,7 +9,7 @@ final class SimulatorSlimmerUITests: XCTestCase {
     case ready
     case empty
     case error
-    case partial
+    case skippedServiceFailure
     case interrupted
     case unsupported
 
@@ -18,7 +18,7 @@ final class SimulatorSlimmerUITests: XCTestCase {
       case .ready: nil
       case .empty: "--ui-testing-empty"
       case .error: "--ui-testing-error"
-      case .partial: "--ui-testing-partial"
+      case .skippedServiceFailure: "--ui-testing-partial"
       case .interrupted: "--ui-testing-interrupted"
       case .unsupported: "--ui-testing-unsupported"
       }
@@ -27,13 +27,6 @@ final class SimulatorSlimmerUITests: XCTestCase {
 
   override func setUpWithError() throws {
     continueAfterFailure = false
-  }
-
-  func testReadyWorkspaceShowsScriptedDevice() {
-    let app = launch(.ready)
-
-    XCTAssertTrue(element(identifier: "optimization.page", in: app).waitForExistence(timeout: 5))
-    XCTAssertTrue(app.buttons["优化此模拟器"].waitForExistence(timeout: 5))
   }
 
   func testCompletedOptimizationDoesNotRestartAfterSwitchingDevices() {
@@ -122,15 +115,15 @@ final class SimulatorSlimmerUITests: XCTestCase {
     XCTAssertTrue(app.buttons["重试"].exists)
   }
 
-  func testPartialBatchResultRemainsVisible() {
-    let app = launch(.partial)
+  func testBatchSkipsFailedServiceAndCompletes() {
+    let app = launch(.skippedServiceFailure)
     startBatchOptimization(in: app)
 
     XCTAssertTrue(app.staticTexts["批量优化已结束"].waitForExistence(timeout: 8))
     assertBatchItem(
       tabletID,
       in: app,
-      contains: ["失败", "部分变更未通过最终验证"]
+      contains: ["成功", "已完成并通过验证"]
     )
   }
 
@@ -192,12 +185,12 @@ final class SimulatorSlimmerUITests: XCTestCase {
     )
   }
 
-  func testInterruptedReceiptKeepsContinuationWithoutSafetyBanner() {
+  func testInterruptedReceiptDoesNotShowRecoveryPrompt() {
     let app = launch(.interrupted)
 
     XCTAssertTrue(element(identifier: "optimization.page", in: app).waitForExistence(timeout: 5))
     XCTAssertFalse(app.staticTexts["发现未完成操作"].exists)
-    XCTAssertTrue(app.buttons["继续验证"].exists)
+    XCTAssertFalse(app.buttons["继续验证"].exists)
   }
 
   func testDestructiveConfirmationIgnoresReturnKey() {

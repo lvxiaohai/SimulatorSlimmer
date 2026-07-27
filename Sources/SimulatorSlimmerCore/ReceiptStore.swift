@@ -207,7 +207,7 @@ actor ReceiptStore: ReceiptStoring {
     {
       receipt.status = .partial
       receipt.finishedAt = Date()
-      receipt.messages.append("\(Self.interruptionMarker)；已保留现状，可继续验证或按基线恢复")
+      receipt.messages.append("\(Self.interruptionMarker)；已保留现状，可按基线恢复")
       try await save(receipt)
       recovered.append(receipt)
     }

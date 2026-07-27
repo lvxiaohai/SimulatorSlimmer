@@ -25,7 +25,7 @@ struct SimulatorSlimmerApp: App {
 
   init() {
     let workspace = WorkspaceFactory.make()
-    let menuBarModel = MenuBarModel(workspace: workspace)
+    let menuBarModel = MenuBarContentModel(workspace: workspace)
     _model = State(initialValue: AppModel(workspace: workspace))
     _menuBarController = State(
       initialValue: MenuBarController(model: menuBarModel)
@@ -60,12 +60,12 @@ private struct MenuBarInstaller: View {
   var body: some View {
     Color.clear
       .frame(width: 0, height: 0)
-    .onAppear {
-      configureController()
-    }
-    .onChange(of: isEnabled) {
-      configureController()
-    }
+      .onAppear {
+        configureController()
+      }
+      .onChange(of: isEnabled) {
+        configureController()
+      }
   }
 
   private func configureController() {
@@ -78,21 +78,25 @@ private struct MenuBarInstaller: View {
 
 @MainActor
 private final class MenuBarController: NSObject, NSMenuDelegate {
-  private let model: MenuBarModel
+  private let model: MenuBarContentModel
+  private let menu = NSMenu()
   private var statusItem: NSStatusItem?
   private var showMainWindow: (() -> Void)?
-  private var isMenuOpen = false
-  private var needsMenuRebuild = false
+  private var isTrackingMenu = false
+  private var isPreparingMenu = false
+  private var hasDeferredMenuUpdate = false
 
-  init(model: MenuBarModel) {
+  init(model: MenuBarContentModel) {
     self.model = model
     super.init()
-    model.didChange = { [weak self] in
+    menu.autoenablesItems = false
+    menu.delegate = self
+    model.onContentChange = { [weak self] in
       guard let self else { return }
-      if isMenuOpen {
-        needsMenuRebuild = true
+      if isTrackingMenu {
+        hasDeferredMenuUpdate = true
       } else {
-        rebuildMenu()
+        rebuildMenuContent()
       }
     }
   }
@@ -110,20 +114,16 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
   }
 
   func menuWillOpen(_ menu: NSMenu) {
-    isMenuOpen = true
-    // AppKit 不允许在菜单开关回调中同步修改菜单结构。
-    DispatchQueue.main.async { [weak self] in
-      self?.model.refresh()
-    }
+    isTrackingMenu = true
   }
 
   func menuDidClose(_ menu: NSMenu) {
-    isMenuOpen = false
+    isTrackingMenu = false
     // 先让当前菜单项的 action 完整执行，再替换菜单结构。
     DispatchQueue.main.async { [weak self] in
-      guard let self, !isMenuOpen, needsMenuRebuild else { return }
-      needsMenuRebuild = false
-      rebuildMenu()
+      guard let self, !isTrackingMenu, hasDeferredMenuUpdate else { return }
+      hasDeferredMenuUpdate = false
+      rebuildMenuContent()
     }
   }
 
@@ -135,14 +135,11 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
       image?.isTemplate = true
       button.image = image
       button.setAccessibilityLabel("Simulator Slimmer")
+      button.target = self
+      button.action = #selector(presentMenu)
     }
-    let menu = NSMenu()
-    menu.autoenablesItems = false
-    menu.delegate = self
-    statusItem.menu = menu
     self.statusItem = statusItem
-    rebuildMenu()
-    model.refresh()
+    rebuildMenuContent()
   }
 
   private func removeStatusItem() {
@@ -150,62 +147,62 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     model.cancelRefresh()
     NSStatusBar.system.removeStatusItem(statusItem)
     self.statusItem = nil
-    isMenuOpen = false
-    needsMenuRebuild = false
+    isTrackingMenu = false
+    isPreparingMenu = false
+    hasDeferredMenuUpdate = false
   }
 
-  private func rebuildMenu() {
-    guard let menu = statusItem?.menu else { return }
+  private func rebuildMenuContent() {
     menu.removeAllItems()
 
     menu.addItem(
       menuItem(
-        title: "显示主界面",
+        title: L10n.text("menu-bar.show-main-window"),
         action: #selector(showMainWindowAction)
       )
     )
     menu.addItem(.separator())
 
-    if !model.devices.isEmpty {
-      for device in model.devices {
-        menu.addItem(deviceMenuItem(device))
+    if !model.deviceItems.isEmpty {
+      for deviceItem in model.deviceItems {
+        menu.addItem(makeDeviceMenuItem(deviceItem))
       }
       if let refreshError = model.refreshError {
         menu.addItem(.separator())
-        let item = disabledItem(title: "设备数据更新失败")
+        let item = disabledItem(title: L10n.text("menu-bar.device-update-failed"))
         item.toolTip = refreshError
         menu.addItem(item)
         menu.addItem(
           menuItem(
-            title: "重新读取",
+            title: L10n.text("menu-bar.reload"),
             action: #selector(retryRefreshAction)
           )
         )
       }
     } else if model.isRefreshing {
-      menu.addItem(disabledItem(title: "正在读取模拟器…"))
+      menu.addItem(disabledItem(title: L10n.text("menu-bar.loading")))
     } else if let refreshError = model.refreshError {
-      let item = disabledItem(title: "读取失败")
+      let item = disabledItem(title: L10n.text("menu-bar.load-failed"))
       item.toolTip = refreshError
       menu.addItem(item)
       menu.addItem(
         menuItem(
-          title: "重新读取",
+          title: L10n.text("menu-bar.reload"),
           action: #selector(retryRefreshAction)
         )
       )
     } else {
-      menu.addItem(disabledItem(title: "没有已启动的模拟器"))
+      menu.addItem(disabledItem(title: L10n.text("menu-bar.no-running-device")))
     }
 
-    if let actionError = model.actionError {
+    if let actionError = model.actionErrorMessage {
       menu.addItem(.separator())
       menu.addItem(disabledItem(title: "⚠︎ \(actionError)"))
     }
 
     menu.addItem(.separator())
     let quitItem = menuItem(
-      title: "退出",
+      title: L10n.text("menu-bar.quit"),
       action: #selector(quitApplication),
       keyEquivalent: "q"
     )
@@ -213,9 +210,9 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     menu.addItem(quitItem)
   }
 
-  private func deviceMenuItem(_ item: MenuBarDeviceItem) -> NSMenuItem {
-    let device = item.snapshot.device
-    let title = "\(device.name) · \(memoryText(item.snapshot.memory?.bytes))"
+  private func makeDeviceMenuItem(_ item: MenuBarDeviceItem) -> NSMenuItem {
+    let device = item.deviceSnapshot.device
+    let title = "\(device.name) · \(memoryText(item.deviceSnapshot.memory?.bytes))"
     let deviceItem = NSMenuItem(
       title: title,
       action: nil,
@@ -232,25 +229,22 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     let submenu = NSMenu()
     submenu.autoenablesItems = false
     let showSimulatorItem = menuItem(
-      title: "显示此模拟器",
+      title: L10n.text("menu-bar.show-device"),
       action: #selector(showSimulatorAction)
     )
     showSimulatorItem.image = symbolImage("rectangle.on.rectangle")
-    showSimulatorItem.representedObject = MenuBarDeviceAction(
-      deviceID: device.id,
-      name: device.name
-    )
+    showSimulatorItem.representedObject = DeviceMenuContext(device: device)
     submenu.addItem(showSimulatorItem)
     submenu.addItem(.separator())
-    submenu.addItem(disabledItem(title: "应用数据目录"))
+    submenu.addItem(disabledItem(title: L10n.text("menu-bar.application-directories")))
     submenu.addItem(.separator())
 
     if item.applications.isEmpty {
       submenu.addItem(
         disabledItem(
-          title: item.applicationError == nil
-            ? "没有用户应用"
-            : "应用读取失败"
+          title: item.applicationLoadError == nil
+            ? L10n.text("menu-bar.no-user-applications")
+            : L10n.text("menu-bar.application-load-failed")
         )
       )
     } else {
@@ -261,30 +255,31 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
           action: #selector(openApplicationDataContainer)
         )
         applicationItem.image = application.icon ?? symbolImage("app")
-        applicationItem.toolTip = "打开 \(application.application.displayName) 的数据目录"
-        applicationItem.representedObject = MenuBarApplicationAction(
+        applicationItem.toolTip = L10n.formatted(
+          "menu-bar.open-application-directory",
+          application.application.displayName
+        )
+        applicationItem.representedObject = ApplicationDataMenuContext(
           application: application.application,
           deviceID: device.id
         )
         submenu.addItem(applicationItem)
       }
 
-      if item.applicationError != nil {
+      if item.applicationLoadError != nil {
         submenu.addItem(.separator())
-        let errorItem = disabledItem(title: "部分应用信息暂不可用")
-        errorItem.toolTip = item.applicationError
+        let errorItem = disabledItem(
+          title: L10n.text("menu-bar.partial-application-data")
+        )
+        errorItem.toolTip = item.applicationLoadError
         submenu.addItem(errorItem)
       }
     }
 
-    if item.applicationError != nil {
+    if item.applicationLoadError != nil {
       let retryItem = menuItem(
-        title: "重新读取应用",
+        title: L10n.text("menu-bar.reload-applications"),
         action: #selector(retryApplicationsAction)
-      )
-      retryItem.representedObject = MenuBarDeviceAction(
-        deviceID: device.id,
-        name: device.name
       )
       submenu.addItem(retryItem)
     }
@@ -334,39 +329,60 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .memory)
   }
 
+  @objc private func presentMenu() {
+    guard
+      !isPreparingMenu,
+      let statusItem,
+      let button = statusItem.button
+    else { return }
+
+    isPreparingMenu = true
+    let refreshTask = model.refreshContent(force: true)
+    Task { [weak self, weak button] in
+      await refreshTask.value
+      guard
+        let self,
+        let button,
+        self.statusItem === statusItem
+      else { return }
+
+      rebuildMenuContent()
+      statusItem.menu = menu
+      button.performClick(nil)
+      statusItem.menu = nil
+      isPreparingMenu = false
+    }
+  }
+
   @objc private func showMainWindowAction() {
     showMainWindow?()
   }
 
   @objc private func openApplicationDataContainer(_ sender: NSMenuItem) {
-    guard let action = sender.representedObject as? MenuBarApplicationAction else {
+    guard let context = sender.representedObject as? ApplicationDataMenuContext else {
       NSSound.beep()
       return
     }
-    model.openDataContainer(
-      for: action.application,
-      deviceID: action.deviceID
+    model.openApplicationDataDirectory(
+      for: context.application,
+      deviceID: context.deviceID
     )
   }
 
   @objc private func showSimulatorAction(_ sender: NSMenuItem) {
-    guard let action = sender.representedObject as? MenuBarDeviceAction else {
+    guard let context = sender.representedObject as? DeviceMenuContext else {
       NSSound.beep()
       return
     }
-    model.showSimulator(action.deviceID, name: action.name)
+    model.showDeviceInSimulator(context.device)
   }
 
   @objc private func retryRefreshAction() {
-    model.refresh()
+    model.refreshContent(force: true)
   }
 
-  @objc private func retryApplicationsAction(_ sender: NSMenuItem) {
-    guard let action = sender.representedObject as? MenuBarDeviceAction else {
-      NSSound.beep()
-      return
-    }
-    model.retryApplications(for: action.deviceID)
+  @objc private func retryApplicationsAction() {
+    model.refreshContent(force: true)
   }
 
   @objc private func quitApplication() {
@@ -374,7 +390,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
   }
 }
 
-private final class MenuBarApplicationAction: NSObject {
+private final class ApplicationDataMenuContext: NSObject {
   let application: SimulatorApplication
   let deviceID: SimulatorID
 
@@ -387,12 +403,10 @@ private final class MenuBarApplicationAction: NSObject {
   }
 }
 
-private final class MenuBarDeviceAction: NSObject {
-  let deviceID: SimulatorID
-  let name: String
+private final class DeviceMenuContext: NSObject {
+  let device: SimulatorDevice
 
-  init(deviceID: SimulatorID, name: String) {
-    self.deviceID = deviceID
-    self.name = name
+  init(device: SimulatorDevice) {
+    self.device = device
   }
 }

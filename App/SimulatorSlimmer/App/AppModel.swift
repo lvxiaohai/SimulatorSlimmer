@@ -155,18 +155,6 @@ final class AppModel {
     }
   }
 
-  var latestVerifiableReceipt: OperationReceipt? {
-    guard let selectedDeviceID else { return nil }
-    let pendingReceiptIDs = Set(overview?.pendingReceipts.map(\.id) ?? [])
-    return recentReceipts.first {
-      $0.deviceID == selectedDeviceID
-        && $0.kind == .optimize
-        && $0.schemaVersion == 1
-        && $0.opaquePayload == nil
-        && (pendingReceiptIDs.contains($0.id) || $0.pendingChange != nil)
-    }
-  }
-
   func load() {
     guard overview == nil, !isLoadingOverview else { return }
     refreshOverview()
@@ -979,16 +967,6 @@ final class AppModel {
     )
   }
 
-  func continueLatestVerification() {
-    guard let deviceID = selectedDeviceID, let receipt = latestVerifiableReceipt else {
-      return
-    }
-    preparePreview(
-      .verify(deviceID: deviceID, receiptID: receipt.id),
-      confirmsExecution: true
-    )
-  }
-
   func scanStorage() {
     guard
       let deviceID = selectedDeviceID,
@@ -1661,84 +1639,59 @@ final class AppModel {
   }
 }
 
-struct MenuBarApplicationItem: Identifiable {
+struct MenuBarApplicationItem {
   let application: SimulatorApplication
   let memory: ApplicationMemorySnapshot?
   let icon: NSImage?
-
-  var id: String { application.bundleIdentifier }
 }
 
-struct MenuBarDeviceItem: Identifiable {
-  let snapshot: MenuBarDeviceSnapshot
+struct MenuBarDeviceItem {
+  let deviceSnapshot: MenuBarDeviceSnapshot
   let applications: [MenuBarApplicationItem]
-  let applicationError: String?
-
-  var id: SimulatorID { snapshot.device.id }
-}
-
-private struct MenuBarApplicationCacheEntry {
-  let applications: [MenuBarApplicationItem]
-  let applicationError: String?
-  let collectedAt: Date
+  let applicationLoadError: String?
 }
 
 @MainActor
-@Observable
-final class MenuBarModel {
+final class MenuBarContentModel {
   private let workspace: any SimulatorWorkspaceClient
-  private static let applicationCacheLifetime: TimeInterval = 15
 
-  var devices: [MenuBarDeviceItem] = []
-  var isRefreshing = false
-  var refreshError: String?
-  var actionError: String?
+  private(set) var deviceItems: [MenuBarDeviceItem] = []
+  private(set) var isRefreshing = false
+  private(set) var refreshError: String?
+  private(set) var actionErrorMessage: String?
 
-  @ObservationIgnored private var refreshTask: Task<Void, Never>?
-  @ObservationIgnored private var folderTask: Task<Void, Never>?
-  @ObservationIgnored private var deviceActionTask: Task<Void, Never>?
-  @ObservationIgnored private var applicationCacheByDevice:
-    [SimulatorID: MenuBarApplicationCacheEntry] = [:]
-  @ObservationIgnored private var applicationIconCache: [URL: NSImage] = [:]
-  @ObservationIgnored var didChange: (() -> Void)?
+  private var refreshTask: Task<Void, Never>?
+  private var menuActionTask: Task<Void, Never>?
+  private var iconCache: [URL: NSImage] = [:]
+  private var refreshGeneration = 0
+  var onContentChange: (() -> Void)?
 
   init(workspace: any SimulatorWorkspaceClient) {
     self.workspace = workspace
   }
 
-  func refresh() {
+  @discardableResult
+  func refreshContent(force: Bool = false) -> Task<Void, Never> {
+    if !force, let refreshTask {
+      return refreshTask
+    }
+
     refreshTask?.cancel()
+    refreshGeneration += 1
+    let generation = refreshGeneration
     isRefreshing = true
     refreshError = nil
 
-    refreshTask = Task { [weak self] in
+    let task = Task { [weak self] in
       guard let self else { return }
       do {
         let snapshot = try await workspace.menuBarSnapshot()
-        let runningDeviceIDs = Set(snapshot.devices.map(\.device.id))
-        applicationCacheByDevice = applicationCacheByDevice.filter {
-          runningDeviceIDs.contains($0.key)
-        }
         var resolvedDevices: [MenuBarDeviceItem] = []
         resolvedDevices.reserveCapacity(snapshot.devices.count)
 
         for deviceSnapshot in snapshot.devices {
           try Task.checkCancellation()
           let deviceID = deviceSnapshot.device.id
-          if
-            let cached = applicationCacheByDevice[deviceID],
-            Date().timeIntervalSince(cached.collectedAt)
-              < Self.applicationCacheLifetime
-          {
-            resolvedDevices.append(
-              MenuBarDeviceItem(
-                snapshot: deviceSnapshot,
-                applications: cached.applications,
-                applicationError: cached.applicationError
-              )
-            )
-            continue
-          }
 
           do {
             let applicationSnapshot = try await workspace.applications(
@@ -1752,75 +1705,70 @@ final class MenuBarModel {
                   memory: applicationSnapshot.memoryByBundleIdentifier[
                     application.bundleIdentifier
                   ],
-                  icon: applicationIcon(for: application)
+                  icon: cachedIcon(for: application)
                 )
               }
-              .sorted(by: Self.applicationSort)
-            let cacheEntry = MenuBarApplicationCacheEntry(
-              applications: applications,
-              applicationError: applicationSnapshot.memoryError,
-              collectedAt: Date()
-            )
-            applicationCacheByDevice[deviceID] = cacheEntry
+              .sorted(by: Self.sortApplicationsByMemory)
             resolvedDevices.append(
               MenuBarDeviceItem(
-                snapshot: deviceSnapshot,
+                deviceSnapshot: deviceSnapshot,
                 applications: applications,
-                applicationError: applicationSnapshot.memoryError
+                applicationLoadError: applicationSnapshot.memoryError
               )
             )
           } catch is CancellationError {
             throw CancellationError()
           } catch {
-            let cached = applicationCacheByDevice[deviceID]
             resolvedDevices.append(
               MenuBarDeviceItem(
-                snapshot: deviceSnapshot,
-                applications: cached?.applications ?? [],
-                applicationError: error.localizedDescription
+                deviceSnapshot: deviceSnapshot,
+                applications: [],
+                applicationLoadError: error.localizedDescription
               )
             )
           }
         }
 
         guard !Task.isCancelled else { return }
-        devices = resolvedDevices
+        let currentBundleURLs = Set(
+          resolvedDevices
+            .flatMap(\.applications)
+            .compactMap(\.application.bundleURL)
+            .map(\.standardizedFileURL)
+        )
+        iconCache = iconCache.filter { currentBundleURLs.contains($0.key) }
+        deviceItems = resolvedDevices
         isRefreshing = false
         refreshTask = nil
-        didChange?()
+        guard generation == refreshGeneration else { return }
+        onContentChange?()
       } catch is CancellationError {
-        guard !Task.isCancelled else { return }
-        isRefreshing = false
-        refreshTask = nil
-        didChange?()
+        guard generation == refreshGeneration else { return }
+        finishRefresh()
       } catch {
-        guard !Task.isCancelled else { return }
+        guard generation == refreshGeneration else { return }
         refreshError = error.localizedDescription
-        isRefreshing = false
-        refreshTask = nil
-        didChange?()
+        finishRefresh()
       }
     }
+    refreshTask = task
+    return task
   }
 
   func cancelRefresh() {
+    refreshGeneration += 1
     refreshTask?.cancel()
     refreshTask = nil
     isRefreshing = false
   }
 
-  func retryApplications(for deviceID: SimulatorID) {
-    applicationCacheByDevice.removeValue(forKey: deviceID)
-    refresh()
-  }
-
-  func openDataContainer(
+  func openApplicationDataDirectory(
     for application: SimulatorApplication,
     deviceID: SimulatorID
   ) {
-    folderTask?.cancel()
+    menuActionTask?.cancel()
     clearActionError()
-    folderTask = Task { [weak self] in
+    menuActionTask = Task { [weak self] in
       guard let self else { return }
       do {
         let folderURL = try await workspace.dataContainer(
@@ -1829,51 +1777,71 @@ final class MenuBarModel {
         )
         guard !Task.isCancelled else { return }
         guard let folderURL else {
-          actionError = "找不到 \(application.displayName) 的数据目录"
-          didChange?()
+          actionErrorMessage = L10n.formatted(
+            "menu-bar.data-directory-missing",
+            application.displayName
+          )
+          menuActionTask = nil
+          onContentChange?()
           NSSound.beep()
           return
         }
         FinderFolderOpener.open(folderURL)
-        actionError = nil
-        folderTask = nil
+        actionErrorMessage = nil
+        menuActionTask = nil
       } catch is CancellationError {
         return
       } catch {
-        actionError = "无法打开 \(application.displayName) 的数据目录"
-        didChange?()
+        guard !Task.isCancelled else { return }
+        actionErrorMessage = L10n.formatted(
+          "menu-bar.data-directory-open-failed",
+          application.displayName
+        )
+        menuActionTask = nil
+        onContentChange?()
         NSSound.beep()
       }
     }
   }
 
-  func showSimulator(_ deviceID: SimulatorID, name: String) {
-    deviceActionTask?.cancel()
+  func showDeviceInSimulator(_ device: SimulatorDevice) {
+    menuActionTask?.cancel()
     clearActionError()
-    deviceActionTask = Task { [weak self] in
+    menuActionTask = Task { [weak self] in
       guard let self else { return }
       do {
-        try await workspace.showSimulator(deviceID)
+        try await workspace.showSimulator(device.id)
         guard !Task.isCancelled else { return }
-        actionError = nil
-        deviceActionTask = nil
+        actionErrorMessage = nil
+        menuActionTask = nil
       } catch is CancellationError {
         return
       } catch {
-        actionError = "无法显示 \(name)"
-        didChange?()
+        guard !Task.isCancelled else { return }
+        actionErrorMessage = L10n.formatted(
+          "menu-bar.show-device-failed",
+          device.name
+        )
+        menuActionTask = nil
+        onContentChange?()
         NSSound.beep()
       }
     }
+  }
+
+  private func finishRefresh() {
+    isRefreshing = false
+    refreshTask = nil
+    onContentChange?()
   }
 
   private func clearActionError() {
-    guard actionError != nil else { return }
-    actionError = nil
-    didChange?()
+    guard actionErrorMessage != nil else { return }
+    actionErrorMessage = nil
+    onContentChange?()
   }
 
-  private static func applicationSort(
+  private static func sortApplicationsByMemory(
     _ lhs: MenuBarApplicationItem,
     _ rhs: MenuBarApplicationItem
   ) -> Bool {
@@ -1888,16 +1856,16 @@ final class MenuBarModel {
       ) == .orderedAscending
   }
 
-  private func applicationIcon(for application: SimulatorApplication) -> NSImage? {
+  private func cachedIcon(for application: SimulatorApplication) -> NSImage? {
     guard let bundleURL = application.bundleURL else { return nil }
     let cacheKey = bundleURL.standardizedFileURL
-    if let cached = applicationIconCache[cacheKey] {
+    if let cached = iconCache[cacheKey] {
       return cached
     }
     let source = NSWorkspace.shared.icon(forFile: cacheKey.path)
     guard source.isValid, let icon = source.copy() as? NSImage else { return nil }
     icon.size = NSSize(width: 18, height: 18)
-    applicationIconCache[cacheKey] = icon
+    iconCache[cacheKey] = icon
     return icon
   }
 }

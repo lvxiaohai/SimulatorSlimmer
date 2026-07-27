@@ -260,7 +260,7 @@ extension OptimizationProfile {
     case .recommended: L10n.text("profile.recommended")
     case .extreme: L10n.text("profile.extreme")
     case .custom: L10n.text("profile.custom")
-    case .allEnabled: L10n.text("profile.all-enabled")
+    case .enableAllServices: L10n.text("profile.all-enabled")
     }
   }
 
@@ -269,7 +269,7 @@ extension OptimizationProfile {
     case .recommended: L10n.text("profile.recommended.summary")
     case .extreme: L10n.text("profile.extreme.summary")
     case .custom: L10n.text("profile.custom.summary")
-    case .allEnabled: L10n.text("profile.all-enabled.summary")
+    case .enableAllServices: L10n.text("profile.all-enabled.summary")
     }
   }
 }
