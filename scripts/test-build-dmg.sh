@@ -35,7 +35,7 @@ if [[ -n "${APP_STORE_API_KEY_ID+x}${APP_STORE_API_ISSUER_ID+x}${APP_STORE_API_K
 fi
 
 app="$SIMULATOR_SLIMMER_DIST_DIR/SimulatorSlimmer.app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -47,6 +47,8 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 PLIST
 : > "$app/Contents/MacOS/SimulatorSlimmer"
 chmod +x "$app/Contents/MacOS/SimulatorSlimmer"
+: > "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
+chmod +x "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
 FAKE_BUILD
 
 cat > "$fake_bin/ditto" <<'FAKE_DITTO'

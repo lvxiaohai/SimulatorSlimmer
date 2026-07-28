@@ -294,7 +294,8 @@ if [[ ! -d "$app_path" ]]; then
 fi
 info_plist="$app_path/Contents/Info.plist"
 main_executable="$app_path/Contents/MacOS/SimulatorSlimmer"
-if [[ ! -f "$info_plist" || ! -x "$main_executable" ]]; then
+helper_executable="$app_path/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
+if [[ ! -f "$info_plist" || ! -x "$main_executable" || ! -x "$helper_executable" ]]; then
   echo "Release App 结构不完整：$app_path" >&2
   exit 1
 fi
@@ -375,7 +376,8 @@ if [[ ! -d "$mounted_app" ]]; then
 fi
 mounted_info_plist="$mounted_app/Contents/Info.plist"
 mounted_executable="$mounted_app/Contents/MacOS/SimulatorSlimmer"
-if [[ ! -f "$mounted_info_plist" || ! -x "$mounted_executable" ]]; then
+mounted_helper_executable="$mounted_app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
+if [[ ! -f "$mounted_info_plist" || ! -x "$mounted_executable" || ! -x "$mounted_helper_executable" ]]; then
   echo "DMG 内 App 结构不完整。" >&2
   exit 1
 fi

@@ -46,6 +46,7 @@ development_team="${DEVELOPMENT_TEAM:-}"
 skip_zip=0
 clean=0
 temporary_app=""
+temporary_dsym_dir=""
 
 usage() {
   cat <<'USAGE'
@@ -170,6 +171,9 @@ cleanup() {
   if [[ -n "$temporary_app" && -e "$temporary_app" ]]; then
     /bin/rm -rf -- "$temporary_app"
   fi
+  if [[ -n "$temporary_dsym_dir" && -e "$temporary_dsym_dir" ]]; then
+    /bin/rm -rf -- "$temporary_dsym_dir"
+  fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -212,6 +216,7 @@ built_app="$derived_data_path/Build/Products/$configuration/$app_name"
 output_app="$dist_dir/$app_name"
 output_zip="$dist_dir/$zip_name"
 built_dsym="$derived_data_path/Build/Products/$configuration/$app_name.dSYM"
+built_helper_dsym="$derived_data_path/Build/Products/$configuration/SimulatorSlimmerMenu.app.dSYM"
 
 if ((clean == 1)); then
   section "清理旧构建"
@@ -255,12 +260,18 @@ if [[ ! -d "$built_app" ]]; then
 fi
 info_plist="$built_app/Contents/Info.plist"
 main_executable="$built_app/Contents/MacOS/SimulatorSlimmer"
+helper_bundle="$built_app/Contents/Helpers/SimulatorSlimmerMenu.app"
+helper_executable="$helper_bundle/Contents/MacOS/SimulatorSlimmerMenu"
 if [[ ! -f "$info_plist" ]]; then
   echo "构建产物缺少 Info.plist：$info_plist" >&2
   exit 1
 fi
 if [[ ! -f "$main_executable" || ! -x "$main_executable" ]]; then
   echo "构建产物缺少可执行主程序：$main_executable" >&2
+  exit 1
+fi
+if [[ ! -f "$helper_executable" || ! -x "$helper_executable" ]]; then
+  echo "构建产物缺少菜单 Helper：$helper_executable" >&2
   exit 1
 fi
 actual_bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$info_plist")"
@@ -280,8 +291,17 @@ if [[ "$mode" == "release" ]]; then
     echo "Release 主程序必须仅包含 arm64，实际架构：$architectures" >&2
     exit 1
   fi
+  helper_architectures="$("$lipo_cmd" -archs "$helper_executable")"
+  if [[ "$helper_architectures" != "arm64" ]]; then
+    echo "Release 菜单 Helper 必须仅包含 arm64，实际架构：$helper_architectures" >&2
+    exit 1
+  fi
   if [[ ! -d "$built_dsym" ]]; then
     echo "Release 构建未生成 dSYM：$built_dsym" >&2
+    exit 1
+  fi
+  if [[ ! -d "$built_helper_dsym" ]]; then
+    echo "Release 构建未生成菜单 Helper dSYM：$built_helper_dsym" >&2
     exit 1
   fi
   executable_uuids="$("$dwarfdump_cmd" --uuid "$main_executable" | /usr/bin/awk '{print $2, $3}' | /usr/bin/sort)"
@@ -290,6 +310,13 @@ if [[ "$mode" == "release" ]]; then
     echo "Release 主程序与 dSYM 的 UUID 不匹配。" >&2
     exit 1
   fi
+  helper_executable_uuids="$("$dwarfdump_cmd" --uuid "$helper_executable" | /usr/bin/awk '{print $2, $3}' | /usr/bin/sort)"
+  helper_dsym_uuids="$("$dwarfdump_cmd" --uuid "$built_helper_dsym" | /usr/bin/awk '{print $2, $3}' | /usr/bin/sort)"
+  if [[ -z "$helper_executable_uuids" || "$helper_executable_uuids" != "$helper_dsym_uuids" ]]; then
+    echo "Release 菜单 Helper 与 dSYM 的 UUID 不匹配。" >&2
+    exit 1
+  fi
+  "$codesign_cmd" --verify --strict --verbose=4 "$helper_bundle"
   "$codesign_cmd" --verify --deep --strict --verbose=4 "$built_app"
 fi
 
@@ -304,7 +331,16 @@ temporary_app=""
 if [[ "$mode" == "release" ]]; then
   section "剥离符号并重新签名"
   output_main_executable="$output_app/Contents/MacOS/SimulatorSlimmer"
+  output_helper_bundle="$output_app/Contents/Helpers/SimulatorSlimmerMenu.app"
+  output_helper_executable="$output_helper_bundle/Contents/MacOS/SimulatorSlimmerMenu"
   "$strip_cmd" -S -x "$output_main_executable"
+  "$strip_cmd" -S -x "$output_helper_executable"
+  "$codesign_cmd" \
+    --force \
+    --sign "$developer_id_application" \
+    --timestamp \
+    --options runtime \
+    "$output_helper_bundle"
   "$codesign_cmd" \
     --force \
     --sign "$developer_id_application" \
@@ -312,12 +348,20 @@ if [[ "$mode" == "release" ]]; then
     --options runtime \
     --entitlements "$repo_root/App/SimulatorSlimmer/SimulatorSlimmer.entitlements" \
     "$output_app"
+  "$codesign_cmd" --verify --strict --verbose=4 "$output_helper_bundle"
   "$codesign_cmd" --verify --deep --strict --verbose=4 "$output_app"
 
   section "导出 dSYM"
   output_dsym_zip="$dist_dir/SimulatorSlimmer-$version-dSYM.zip"
   /bin/rm -f -- "$output_dsym_zip"
-  "$ditto_cmd" -c -k --keepParent "$built_dsym" "$output_dsym_zip"
+  temporary_dsym_dir="$dist_dir/SimulatorSlimmer-$version-dSYMs"
+  /bin/rm -rf -- "$temporary_dsym_dir"
+  /bin/mkdir -p "$temporary_dsym_dir"
+  "$ditto_cmd" "$built_dsym" "$temporary_dsym_dir/$app_name.dSYM"
+  "$ditto_cmd" "$built_helper_dsym" "$temporary_dsym_dir/SimulatorSlimmerMenu.app.dSYM"
+  "$ditto_cmd" -c -k --keepParent "$temporary_dsym_dir" "$output_dsym_zip"
+  /bin/rm -rf -- "$temporary_dsym_dir"
+  temporary_dsym_dir=""
   if [[ ! -f "$output_dsym_zip" ]]; then
     echo "未生成 dSYM zip：$output_dsym_zip" >&2
     exit 1

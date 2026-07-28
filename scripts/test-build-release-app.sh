@@ -39,7 +39,7 @@ if [[ -z "$configuration" || -z "$derived_data_path" ]]; then
 fi
 
 app="$derived_data_path/Build/Products/$configuration/SimulatorSlimmer.app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -51,10 +51,15 @@ cat > "$app/Contents/Info.plist" <<PLIST
 PLIST
 : > "$app/Contents/MacOS/SimulatorSlimmer"
 chmod +x "$app/Contents/MacOS/SimulatorSlimmer"
+: > "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
+chmod +x "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
 if [[ "$configuration" == "Release" ]]; then
   dsym="$derived_data_path/Build/Products/$configuration/SimulatorSlimmer.app.dSYM"
   mkdir -p "$dsym/Contents/Resources/DWARF"
   : > "$dsym/Contents/Resources/DWARF/SimulatorSlimmer"
+  helper_dsym="$derived_data_path/Build/Products/$configuration/SimulatorSlimmerMenu.app.dSYM"
+  mkdir -p "$helper_dsym/Contents/Resources/DWARF"
+  : > "$helper_dsym/Contents/Resources/DWARF/SimulatorSlimmerMenu"
 fi
 FAKE_XCODEBUILD
 
@@ -131,6 +136,7 @@ debug_derived="$tmp_dir/debug-derived"
 debug_dist="$tmp_dir/debug-dist"
 debug_output="$(run_build "$debug_derived" "$debug_dist" --debug-unsigned --clean)"
 test -d "$debug_dist/SimulatorSlimmer.app"
+test -x "$debug_dist/SimulatorSlimmer.app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
 test -f "$debug_dist/SimulatorSlimmer-Debug-macOS.zip"
 /usr/bin/grep -Fq -- '-configuration Debug' "$xcodebuild_log"
 /usr/bin/grep -Fq -- 'CODE_SIGNING_ALLOWED=NO' "$xcodebuild_log"
@@ -155,8 +161,11 @@ release_output="$(
     run_build "$release_derived" "$release_dist" --release-developer-id --clean
 )"
 test -d "$release_dist/SimulatorSlimmer.app"
+test -x "$release_dist/SimulatorSlimmer.app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
 test -f "$release_dist/SimulatorSlimmer-macOS.zip"
 test -f "$release_dist/SimulatorSlimmer-0.1.0-dSYM.zip"
+/usr/bin/grep -Fq -- '--keepParent' "$ditto_log"
+/usr/bin/grep -Fq -- 'SimulatorSlimmer-0.1.0-dSYMs' "$ditto_log"
 /usr/bin/grep -Fq -- '-configuration Release' "$xcodebuild_log"
 /usr/bin/grep -Fq -- 'ARCHS=arm64' "$xcodebuild_log"
 /usr/bin/grep -Fq -- 'ONLY_ACTIVE_ARCH=NO' "$xcodebuild_log"
@@ -167,9 +176,18 @@ test -f "$release_dist/SimulatorSlimmer-0.1.0-dSYM.zip"
 /usr/bin/grep -Fq -- 'CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO' "$xcodebuild_log"
 /usr/bin/grep -Fq -- 'OTHER_CODE_SIGN_FLAGS=--timestamp --options runtime' "$xcodebuild_log"
 /usr/bin/grep -Fq -- '-S -x' "$strip_log"
+if [[ "$(/usr/bin/grep -Fc -- '-S -x' "$strip_log")" -ne 2 ]]; then
+  echo "Release 模式应分别剥离主程序和菜单 Helper。" >&2
+  exit 1
+fi
+/usr/bin/grep -Fq -- '--force --sign Developer ID Application: 测试签名 (TESTTEAM01) --timestamp --options runtime' "$codesign_log"
 /usr/bin/grep -Fq -- '--force --sign Developer ID Application: 测试签名 (TESTTEAM01) --timestamp --options runtime --entitlements' "$codesign_log"
 if [[ "$(/usr/bin/grep -Fc -- '--verify --deep --strict --verbose=4' "$codesign_log")" -ne 2 ]]; then
   echo "Release 模式应校验构建目录和导出目录中的 App 签名。" >&2
+  exit 1
+fi
+if [[ "$(/usr/bin/grep -Fc -- '--verify --strict --verbose=4' "$codesign_log")" -ne 2 ]]; then
+  echo "Release 模式应校验构建目录和导出目录中的菜单 Helper 签名。" >&2
   exit 1
 fi
 /usr/bin/grep -Fq '模式：Release (Developer ID)' <<<"$release_output"

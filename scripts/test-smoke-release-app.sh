@@ -7,7 +7,7 @@ tmp_dir="$(/usr/bin/mktemp -d "$repo_root/.build/release-smoke-script-test.XXXXX
 trap '/bin/rm -rf -- "$tmp_dir"' EXIT
 
 fake_app="$tmp_dir/SimulatorSlimmer.app"
-/bin/mkdir -p "$fake_app/Contents/MacOS"
+/bin/mkdir -p "$fake_app/Contents/MacOS" "$fake_app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS"
 cat > "$fake_app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -19,6 +19,8 @@ cat > "$fake_app/Contents/Info.plist" <<'PLIST'
 PLIST
 : > "$fake_app/Contents/MacOS/SimulatorSlimmer"
 /bin/chmod +x "$fake_app/Contents/MacOS/SimulatorSlimmer"
+: > "$fake_app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
+/bin/chmod +x "$fake_app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
 
 fake_open="$tmp_dir/open"
 fake_pgrep="$tmp_dir/pgrep"
@@ -29,6 +31,7 @@ pgrep_log="$tmp_dir/pgrep.log"
 kill_log="$tmp_dir/kill.log"
 window_check_log="$tmp_dir/window-check.log"
 pgrep_state="$tmp_dir/pgrep-state"
+helper_pgrep_state="$tmp_dir/helper-pgrep-state"
 
 cat > "$fake_open" <<'FAKE_OPEN'
 #!/usr/bin/env bash
@@ -41,6 +44,18 @@ write_default_pgrep() {
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$PGREP_LOG"
+if [[ "${!#}" == "SimulatorSlimmerMenu" ]]; then
+  count=0
+  if [[ -f "$HELPER_PGREP_STATE" ]]; then
+    count="$(cat "$HELPER_PGREP_STATE")"
+  fi
+  count=$((count + 1))
+  printf '%s' "$count" > "$HELPER_PGREP_STATE"
+  if ((count >= 2)); then
+    echo "54321"
+  fi
+  exit 0
+fi
 count=0
 if [[ -f "$PGREP_STATE" ]]; then
   count="$(cat "$PGREP_STATE")"
@@ -71,7 +86,7 @@ FAKE_WINDOW
 /bin/chmod +x "$fake_open" "$fake_pgrep" "$fake_kill" "$fake_window_check"
 
 reset_logs() {
-  /bin/rm -f "$open_log" "$pgrep_log" "$kill_log" "$window_check_log" "$pgrep_state"
+  /bin/rm -f "$open_log" "$pgrep_log" "$kill_log" "$window_check_log" "$pgrep_state" "$helper_pgrep_state"
 }
 
 run_smoke() {
@@ -80,6 +95,7 @@ run_smoke() {
     KILL_LOG="$kill_log" \
     WINDOW_CHECK_LOG="$window_check_log" \
     PGREP_STATE="$pgrep_state" \
+    HELPER_PGREP_STATE="$helper_pgrep_state" \
     FAKE_WINDOW_FAIL="${FAKE_WINDOW_FAIL:-0}" \
     OPEN="$fake_open" \
     PGREP="$fake_pgrep" \
@@ -94,8 +110,10 @@ reset_logs
 output="$(run_smoke)"
 /usr/bin/grep -Fq -- "-n $fake_app" "$open_log"
 /usr/bin/grep -Fq -- '-x SimulatorSlimmer' "$pgrep_log"
+/usr/bin/grep -Fq -- '-x SimulatorSlimmerMenu' "$pgrep_log"
 /usr/bin/grep -Fq 'SimulatorSlimmer 43210 10 920 620' "$window_check_log"
 /usr/bin/grep -Fq '43210' "$kill_log"
+/usr/bin/grep -Fq '54321' "$kill_log"
 /usr/bin/grep -Fq '版本：0.1.0 (7)' <<<"$output"
 /usr/bin/grep -Fq '主窗口已显示' <<<"$output"
 /usr/bin/grep -Fq 'Release App 启动烟测通过' <<<"$output"
@@ -114,6 +132,18 @@ cat > "$fake_pgrep" <<'FAKE_PGREP_EXISTING'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$PGREP_LOG"
+if [[ "${!#}" == "SimulatorSlimmerMenu" ]]; then
+  count=0
+  if [[ -f "$HELPER_PGREP_STATE" ]]; then
+    count="$(cat "$HELPER_PGREP_STATE")"
+  fi
+  count=$((count + 1))
+  printf '%s' "$count" > "$HELPER_PGREP_STATE"
+  if ((count >= 2)); then
+    echo "54321"
+  fi
+  exit 0
+fi
 count=0
 if [[ -f "$PGREP_STATE" ]]; then
   count="$(cat "$PGREP_STATE")"

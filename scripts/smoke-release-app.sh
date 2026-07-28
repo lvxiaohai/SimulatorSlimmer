@@ -35,11 +35,13 @@ fi
 
 bundle_id="com.neolabsapp.simulatorslimmer"
 process_name="SimulatorSlimmer"
+helper_process_name="SimulatorSlimmerMenu"
 timeout_seconds=10
 keep_running=0
 min_window_width=920
 min_window_height=620
 launched_pid=""
+launched_helper_pid=""
 
 usage() {
   cat <<'USAGE'
@@ -123,9 +125,15 @@ require_executable() {
 }
 
 cleanup() {
-  if [[ -n "$launched_pid" && "$keep_running" == "0" ]]; then
-    "$kill_cmd" "$launched_pid" 2>/dev/null || true
-    launched_pid=""
+  if [[ "$keep_running" == "0" ]]; then
+    if [[ -n "$launched_pid" ]]; then
+      "$kill_cmd" "$launched_pid" 2>/dev/null || true
+      launched_pid=""
+    fi
+    if [[ -n "$launched_helper_pid" ]]; then
+      "$kill_cmd" "$launched_helper_pid" 2>/dev/null || true
+      launched_helper_pid=""
+    fi
   fi
 }
 trap cleanup EXIT
@@ -230,7 +238,8 @@ if [[ ! -d "$app_path" ]]; then
 fi
 info_plist="$app_path/Contents/Info.plist"
 main_executable="$app_path/Contents/MacOS/SimulatorSlimmer"
-if [[ ! -f "$info_plist" || ! -x "$main_executable" ]]; then
+helper_executable="$app_path/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
+if [[ ! -f "$info_plist" || ! -x "$main_executable" || ! -x "$helper_executable" ]]; then
   echo "App 结构不完整：$app_path" >&2
   exit 2
 fi
@@ -248,6 +257,7 @@ echo "版本：$short_version ($build_version)"
 
 section "启动检查"
 existing_pids="$("$pgrep_cmd" -x "$process_name" 2>/dev/null || true)"
+existing_helper_pids="$("$pgrep_cmd" -x "$helper_process_name" 2>/dev/null || true)"
 if [[ -n "$existing_pids" ]]; then
   echo "检测到既有 $process_name 进程；本次烟测只清理新启动进程。"
 fi
@@ -268,6 +278,16 @@ if [[ -z "$launched_pid" ]]; then
 fi
 echo "已启动 ${process_name}，PID：${launched_pid}"
 
+helper_deadline=$((SECONDS + 2))
+while ((SECONDS < helper_deadline)); do
+  current_helper_pids="$("$pgrep_cmd" -x "$helper_process_name" 2>/dev/null || true)"
+  if launched_helper_pid="$(find_new_pid "$existing_helper_pids" "$current_helper_pids")"; then
+    echo "已启动菜单 Helper，PID：${launched_helper_pid}"
+    break
+  fi
+  /bin/sleep 0.2
+done
+
 if wait_for_main_window "$launched_pid" "$timeout_seconds" "$min_window_width" "$min_window_height"; then
   echo "主窗口已显示，最小尺寸 ${min_window_width}x${min_window_height}。"
 else
@@ -280,9 +300,18 @@ if ((keep_running == 0)); then
   "$kill_cmd" "$launched_pid" 2>/dev/null || true
   echo "已结束烟测进程：$launched_pid"
   launched_pid=""
+  if [[ -n "$launched_helper_pid" ]]; then
+    "$kill_cmd" "$launched_helper_pid" 2>/dev/null || true
+    echo "已结束菜单 Helper：$launched_helper_pid"
+    launched_helper_pid=""
+  fi
 else
   echo "已保留烟测进程：$launched_pid"
+  if [[ -n "$launched_helper_pid" ]]; then
+    echo "已保留菜单 Helper：$launched_helper_pid"
+  fi
   launched_pid=""
+  launched_helper_pid=""
 fi
 
 section "结果"
