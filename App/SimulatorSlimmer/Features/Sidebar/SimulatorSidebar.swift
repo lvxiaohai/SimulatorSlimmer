@@ -238,6 +238,7 @@ private struct SidebarHeaderButton: View {
         isHovered: isHovered
       )
     )
+    .focusable(false)
     .onHover { isHovered = $0 }
     .accessibilityAddTraits(isActive ? .isSelected : [])
   }
