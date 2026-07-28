@@ -228,11 +228,13 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     let device = snapshot.device
     let title = "\(device.name) · \(memoryText(snapshot.memory?.bytes))"
     let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-    item.image = symbolImage(
+    if let image = symbolImage(
       device.deviceTypeIdentifier.localizedCaseInsensitiveContains("ipad")
         ? "ipad"
         : "iphone"
-    )
+    ) {
+      item.attributedTitle = menuTitle(title, leadingImage: image)
+    }
 
     let submenu = NSMenu()
     submenu.autoenablesItems = false
@@ -382,6 +384,19 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     image.isTemplate = true
     image.size = NSSize(width: 16, height: 16)
     return image
+  }
+
+  private func menuTitle(
+    _ title: String,
+    leadingImage image: NSImage
+  ) -> NSAttributedString {
+    let attachment = NSTextAttachment()
+    attachment.image = image
+    attachment.bounds = NSRect(x: 0, y: -3, width: 16, height: 16)
+
+    let attributedTitle = NSMutableAttributedString(attachment: attachment)
+    attributedTitle.append(NSAttributedString(string: "  \(title)"))
+    return attributedTitle
   }
 
   private func roundedApplicationIcon(_ source: NSImage) -> NSImage {

@@ -48,6 +48,25 @@ struct ApplicationLifecycleContractTests {
     #expect(source.contains("HelperLocation.mainApplicationURL"))
   }
 
+  @Test("设备图标不改变顶层菜单文字对齐")
+  func deviceIconDoesNotCreateTopLevelMenuImageColumn() throws {
+    let source = try source(
+      "App/SimulatorSlimmerMenuHelper/MenuHelperMain.swift"
+    )
+    let makeDeviceItem = try #require(
+      source.range(of: "private func makeDeviceItem")
+    )
+    let buildDeviceMenu = try #require(
+      source.range(of: "private func buildUnloadedDeviceMenu")
+    )
+    let deviceItemSource = source[
+      makeDeviceItem.lowerBound..<buildDeviceMenu.lowerBound
+    ]
+
+    #expect(deviceItemSource.contains("item.attributedTitle = menuTitle"))
+    #expect(!deviceItemSource.contains("item.image = symbolImage"))
+  }
+
   private func source(_ relativePath: String) throws -> String {
     let testDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     let repositoryRoot =
