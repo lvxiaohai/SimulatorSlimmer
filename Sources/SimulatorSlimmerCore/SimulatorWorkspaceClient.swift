@@ -1,17 +1,20 @@
 import Foundation
 
-public protocol SimulatorWorkspaceClient: Sendable {
-  func overview() async throws -> WorkspaceOverview
+public protocol MenuBarWorkspaceClient: Sendable {
   func menuBarSnapshot() async throws -> MenuBarSnapshot
-  func simulatorCreationOptions() async throws -> SimulatorCreationOptions
-  func createSimulator(_ request: SimulatorCreationRequest) async throws -> SimulatorID
-  func inspect(_ deviceID: SimulatorID) async throws -> DeviceSnapshot
   func applications(for deviceID: SimulatorID) async throws -> SimulatorApplicationListSnapshot
   func dataContainer(
     for deviceID: SimulatorID,
     bundleIdentifier: String
   ) async throws -> URL?
   func showSimulator(_ deviceID: SimulatorID) async throws
+}
+
+public protocol SimulatorWorkspaceClient: MenuBarWorkspaceClient {
+  func overview() async throws -> WorkspaceOverview
+  func simulatorCreationOptions() async throws -> SimulatorCreationOptions
+  func createSimulator(_ request: SimulatorCreationRequest) async throws -> SimulatorID
+  func inspect(_ deviceID: SimulatorID) async throws -> DeviceSnapshot
   func preview(_ operation: SimulatorOperation) async throws -> OperationPreview
   func perform(
     _ operation: SimulatorOperation

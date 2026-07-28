@@ -28,7 +28,34 @@
 		B00000000000000000000011 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* Localizable.xcstrings */; };
 		B00000000000000000000012 /* SimulatorSlimmerCore in Frameworks */ = {isa = PBXBuildFile; productRef = F00000000000000000000002 /* SimulatorSlimmerCore */; };
 		B00000000000000000000014 /* LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000016 /* LICENSE.txt */; };
+		B00000000000000000000017 /* MenuHelperMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000019 /* MenuHelperMain.swift */; };
+		B00000000000000000000018 /* SimulatorSlimmerCore in Frameworks */ = {isa = PBXBuildFile; productRef = F00000000000000000000003 /* SimulatorSlimmerCore */; };
+		B00000000000000000000019 /* SimulatorSlimmerMenu.app in Embed Menu Helper */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001A /* SimulatorSlimmerMenu.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		G00000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E00000000000000000000003 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E00000000000000000000009;
+			remoteInfo = SimulatorSlimmerMenu;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D00000000000000000000006 /* Embed Menu Helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				B00000000000000000000019 /* SimulatorSlimmerMenu.app in Embed Menu Helper */,
+			);
+			name = "Embed Menu Helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A00000000000000000000001 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -54,6 +81,9 @@
 		A00000000000000000000013 /* SimulatorSlimmer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimulatorSlimmer.entitlements; sourceTree = "<group>"; };
 		A00000000000000000000014 /* SimulatorSlimmer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimulatorSlimmer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000016 /* LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE.txt; sourceTree = "<group>"; };
+		A00000000000000000000019 /* MenuHelperMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuHelperMain.swift; sourceTree = "<group>"; };
+		A0000000000000000000001A /* SimulatorSlimmerMenu.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimulatorSlimmerMenu.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A0000000000000000000001B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -65,6 +95,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D00000000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000018 /* SimulatorSlimmerCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -72,6 +110,7 @@
 			isa = PBXGroup;
 			children = (
 				C00000000000000000000003 /* SimulatorSlimmer */,
+				C00000000000000000000010 /* SimulatorSlimmerMenuHelper */,
 				C00000000000000000000002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -80,6 +119,7 @@
 			isa = PBXGroup;
 			children = (
 				A00000000000000000000014 /* SimulatorSlimmer.app */,
+				A0000000000000000000001A /* SimulatorSlimmerMenu.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -202,6 +242,16 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		C00000000000000000000010 /* SimulatorSlimmerMenuHelper */ = {
+			isa = PBXGroup;
+			children = (
+				A00000000000000000000019 /* MenuHelperMain.swift */,
+				A0000000000000000000001B /* Info.plist */,
+			);
+			name = SimulatorSlimmerMenuHelper;
+			path = App/SimulatorSlimmerMenuHelper;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -212,10 +262,12 @@
 				D00000000000000000000002 /* Sources */,
 				D00000000000000000000001 /* Frameworks */,
 				D00000000000000000000003 /* Resources */,
+				D00000000000000000000006 /* Embed Menu Helper */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				G00000000000000000000002 /* PBXTargetDependency */,
 			);
 			name = SimulatorSlimmer;
 			packageProductDependencies = (
@@ -223,6 +275,25 @@
 			);
 			productName = SimulatorSlimmer;
 			productReference = A00000000000000000000014 /* SimulatorSlimmer.app */;
+			productType = "com.apple.product-type.application";
+		};
+		E00000000000000000000009 /* SimulatorSlimmerMenu */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E0000000000000000000000A /* Build configuration list for PBXNativeTarget "SimulatorSlimmerMenu" */;
+			buildPhases = (
+				D00000000000000000000005 /* Sources */,
+				D00000000000000000000004 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SimulatorSlimmerMenu;
+			packageProductDependencies = (
+				F00000000000000000000003 /* SimulatorSlimmerCore */,
+			);
+			productName = SimulatorSlimmerMenu;
+			productReference = A0000000000000000000001A /* SimulatorSlimmerMenu.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -236,6 +307,9 @@
 				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					E00000000000000000000001 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					E00000000000000000000009 = {
 						CreatedOnToolsVersion = 26.5;
 					};
 				};
@@ -257,6 +331,7 @@
 			projectRoot = "";
 			targets = (
 				E00000000000000000000001 /* SimulatorSlimmer */,
+				E00000000000000000000009 /* SimulatorSlimmerMenu */,
 			);
 		};
 /* End PBXProject section */
@@ -296,6 +371,14 @@
 				B0000000000000000000000F /* StorageView.swift in Sources */,
 				B00000000000000000000015 /* ApplicationsView.swift in Sources */,
 				B00000000000000000000016 /* ApplicationIconLoader.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D00000000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000017 /* MenuHelperMain.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -478,6 +561,61 @@
 			};
 			name = Release;
 		};
+		E0000000000000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/SimulatorSlimmerMenuHelper/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.neolabsapp.simulatorslimmer.menu;
+				PRODUCT_NAME = SimulatorSlimmerMenu;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		E0000000000000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = App/SimulatorSlimmerMenuHelper/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.neolabsapp.simulatorslimmer.menu;
+				PRODUCT_NAME = SimulatorSlimmerMenu;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -499,7 +637,24 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		E0000000000000000000000A /* Build configuration list for PBXNativeTarget "SimulatorSlimmerMenu" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E0000000000000000000000B /* Debug */,
+				E0000000000000000000000C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin PBXTargetDependency section */
+		G00000000000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E00000000000000000000009 /* SimulatorSlimmerMenu */;
+			targetProxy = G00000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCLocalSwiftPackageReference section */
 		F00000000000000000000001 /* XCLocalSwiftPackageReference "." */ = {
@@ -510,6 +665,11 @@
 
 /* Begin XCSwiftPackageProductDependency section */
 		F00000000000000000000002 /* SimulatorSlimmerCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
+			productName = SimulatorSlimmerCore;
+		};
+		F00000000000000000000003 /* SimulatorSlimmerCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = SimulatorSlimmerCore;

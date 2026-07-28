@@ -368,7 +368,7 @@
     "settings.general" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"通用"}}}},
     "settings.menu-bar" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"菜单栏"}}}},
     "settings.menu-bar.enabled" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"菜单栏常驻"}}}},
-    "settings.menu-bar.enabled.summary" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"关闭主窗口后继续在菜单栏运行；关闭此选项后，关闭主窗口将退出应用。"}}}},
+    "settings.menu-bar.enabled.summary" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"关闭主窗口后仅保留轻量菜单，可随时重新打开主界面。"}}}},
     "settings.interval.15" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"15 秒"}}}},
     "settings.interval.30" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"30 秒"}}}},
     "settings.interval.60" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"60 秒"}}}},

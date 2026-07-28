@@ -1754,3 +1754,16 @@ final class AppModel {
     }
   }
 }
+
+@MainActor
+enum FinderFolderOpener {
+  static func open(_ folderURL: URL) {
+    if !NSWorkspace.shared.open(folderURL) {
+      NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+    }
+    NSRunningApplication
+      .runningApplications(withBundleIdentifier: "com.apple.finder")
+      .first?
+      .activate(options: [.activateAllWindows])
+  }
+}
