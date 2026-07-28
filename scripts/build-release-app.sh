@@ -11,7 +11,7 @@ if [[ "$script_testing" != "0" && "$script_testing" != "1" ]]; then
 fi
 
 if [[ "$script_testing" != "1" ]]; then
-  if [[ -n "${XCODEBUILD+x}${DITTO+x}${CODESIGN+x}${SIMULATOR_SLIMMER_DERIVED_DATA_PATH+x}${SIMULATOR_SLIMMER_DIST_DIR+x}" ]]; then
+  if [[ -n "${XCODEBUILD+x}${DITTO+x}${CODESIGN+x}${STRIP+x}${LIPO+x}${DWARFDUMP+x}${SIMULATOR_SLIMMER_DERIVED_DATA_PATH+x}${SIMULATOR_SLIMMER_DIST_DIR+x}" ]]; then
     echo "命令和输出路径覆盖只能在脚本测试模式使用；正式构建固定使用受信命令和仓库输出目录。" >&2
     exit 2
   fi
@@ -19,12 +19,18 @@ if [[ "$script_testing" != "1" ]]; then
   xcodebuild_cmd="/usr/bin/xcodebuild"
   ditto_cmd="/usr/bin/ditto"
   codesign_cmd="/usr/bin/codesign"
+  strip_cmd="/usr/bin/strip"
+  lipo_cmd="/usr/bin/lipo"
+  dwarfdump_cmd="/usr/bin/dwarfdump"
   derived_data_path="$repo_root/.build/release-app"
   dist_dir="$repo_root/dist"
 else
   xcodebuild_cmd="${XCODEBUILD:-/usr/bin/xcodebuild}"
   ditto_cmd="${DITTO:-/usr/bin/ditto}"
   codesign_cmd="${CODESIGN:-/usr/bin/codesign}"
+  strip_cmd="${STRIP:-/usr/bin/strip}"
+  lipo_cmd="${LIPO:-/usr/bin/lipo}"
+  dwarfdump_cmd="${DWARFDUMP:-/usr/bin/dwarfdump}"
   derived_data_path="${SIMULATOR_SLIMMER_DERIVED_DATA_PATH:-$repo_root/.build/release-app}"
   dist_dir="${SIMULATOR_SLIMMER_DIST_DIR:-$repo_root/dist}"
 fi
@@ -60,6 +66,7 @@ usage() {
   dist/SimulatorSlimmer.app
   dist/SimulatorSlimmer-Debug-macOS.zip   Debug 模式
   dist/SimulatorSlimmer-macOS.zip         Release 模式
+  dist/SimulatorSlimmer-<版本>-dSYM.zip   Release 调试符号
 
 Release 模式必需环境变量：
   DEVELOPER_ID_APPLICATION  完整的 Developer ID Application 签名身份
@@ -67,7 +74,7 @@ Release 模式必需环境变量：
 
 脚本测试模式：
   SIMULATOR_SLIMMER_SCRIPT_TESTING=1 时，才允许通过 XCODEBUILD、DITTO、
-  CODESIGN、SIMULATOR_SLIMMER_DERIVED_DATA_PATH 和
+  CODESIGN、STRIP、LIPO、DWARFDUMP、SIMULATOR_SLIMMER_DERIVED_DATA_PATH 和
   SIMULATOR_SLIMMER_DIST_DIR 注入测试替身。正式模式拒绝这些覆盖。
 USAGE
 }
@@ -184,6 +191,9 @@ fi
 
 if [[ "$mode" == "release" ]]; then
   require_executable "$codesign_cmd" "codesign"
+  require_executable "$strip_cmd" "strip"
+  require_executable "$lipo_cmd" "lipo"
+  require_executable "$dwarfdump_cmd" "dwarfdump"
   if [[ -z "$developer_id_application" || "$developer_id_application" != "Developer ID Application:"* ]]; then
     echo "Release 模式必须提供以 Developer ID Application: 开头的 DEVELOPER_ID_APPLICATION。" >&2
     exit 2
@@ -201,6 +211,7 @@ fi
 built_app="$derived_data_path/Build/Products/$configuration/$app_name"
 output_app="$dist_dir/$app_name"
 output_zip="$dist_dir/$zip_name"
+built_dsym="$derived_data_path/Build/Products/$configuration/$app_name.dSYM"
 
 if ((clean == 1)); then
   section "清理旧构建"
@@ -226,11 +237,14 @@ if [[ "$mode" == "debug" ]]; then
     build
 else
   "$xcodebuild_cmd" "${xcode_arguments[@]}" \
+    ARCHS=arm64 \
+    ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="$developer_id_application" \
     DEVELOPMENT_TEAM="$development_team" \
     CODE_SIGNING_ALLOWED=YES \
     CODE_SIGNING_REQUIRED=YES \
+    CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
     OTHER_CODE_SIGN_FLAGS="--timestamp --options runtime" \
     build
 fi
@@ -261,6 +275,21 @@ if [[ -z "$version" || -z "$build_number" ]]; then
   exit 1
 fi
 if [[ "$mode" == "release" ]]; then
+  architectures="$("$lipo_cmd" -archs "$main_executable")"
+  if [[ "$architectures" != "arm64" ]]; then
+    echo "Release 主程序必须仅包含 arm64，实际架构：$architectures" >&2
+    exit 1
+  fi
+  if [[ ! -d "$built_dsym" ]]; then
+    echo "Release 构建未生成 dSYM：$built_dsym" >&2
+    exit 1
+  fi
+  executable_uuids="$("$dwarfdump_cmd" --uuid "$main_executable" | /usr/bin/awk '{print $2, $3}' | /usr/bin/sort)"
+  dsym_uuids="$("$dwarfdump_cmd" --uuid "$built_dsym" | /usr/bin/awk '{print $2, $3}' | /usr/bin/sort)"
+  if [[ -z "$executable_uuids" || "$executable_uuids" != "$dsym_uuids" ]]; then
+    echo "Release 主程序与 dSYM 的 UUID 不匹配。" >&2
+    exit 1
+  fi
   "$codesign_cmd" --verify --deep --strict --verbose=4 "$built_app"
 fi
 
@@ -273,7 +302,26 @@ temporary_app="$dist_dir/.SimulatorSlimmer.app.tmp.$$"
 temporary_app=""
 
 if [[ "$mode" == "release" ]]; then
+  section "剥离符号并重新签名"
+  output_main_executable="$output_app/Contents/MacOS/SimulatorSlimmer"
+  "$strip_cmd" -S -x "$output_main_executable"
+  "$codesign_cmd" \
+    --force \
+    --sign "$developer_id_application" \
+    --timestamp \
+    --options runtime \
+    --entitlements "$repo_root/App/SimulatorSlimmer/SimulatorSlimmer.entitlements" \
+    "$output_app"
   "$codesign_cmd" --verify --deep --strict --verbose=4 "$output_app"
+
+  section "导出 dSYM"
+  output_dsym_zip="$dist_dir/SimulatorSlimmer-$version-dSYM.zip"
+  /bin/rm -f -- "$output_dsym_zip"
+  "$ditto_cmd" -c -k --keepParent "$built_dsym" "$output_dsym_zip"
+  if [[ ! -f "$output_dsym_zip" ]]; then
+    echo "未生成 dSYM zip：$output_dsym_zip" >&2
+    exit 1
+  fi
 fi
 
 if ((skip_zip == 0)); then
@@ -292,4 +340,7 @@ echo "版本：$version ($build_number)"
 echo "App：$output_app"
 if ((skip_zip == 0)); then
   echo "Zip：$output_zip"
+fi
+if [[ "$mode" == "release" ]]; then
+  echo "dSYM：$output_dsym_zip"
 fi

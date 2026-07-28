@@ -50,7 +50,7 @@ SIMULATOR_SLIMMER_INTEGRATION_UDID='<专用模拟器 UDID>' swift test
 
 ## 独立分发
 
-项目不以 Mac App Store 上架为目标，使用 Developer ID、Apple 公证和 DMG 独立分发。先验证发布脚本，再导出本地 Release App：
+项目不以 Mac App Store 上架为目标，正式版本仅支持 Apple Silicon，并使用 Developer ID、Apple 公证和 DMG 独立分发。Release 构建会剥离 App 内的发布符号，并在 `dist/` 单独保存匹配的 dSYM。先验证发布脚本，再导出本地 Release App：
 
 ```bash
 scripts/test-release-scripts.sh
