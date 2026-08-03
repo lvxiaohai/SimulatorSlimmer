@@ -1,7 +1,9 @@
+import Sparkle
 import SwiftUI
 
 struct SimulatorSlimmerCommands: Commands {
   let model: AppModel
+  let updaterController: SPUStandardUpdaterController
 
   var body: some Commands {
     CommandGroup(replacing: .newItem) {
@@ -26,6 +28,12 @@ struct SimulatorSlimmerCommands: Commands {
         model.showSettings()
       }
       .keyboardShortcut(",", modifiers: .command)
+    }
+
+    CommandGroup(after: .appInfo) {
+      Button("command.check-for-updates") {
+        updaterController.checkForUpdates(nil)
+      }
     }
   }
 }

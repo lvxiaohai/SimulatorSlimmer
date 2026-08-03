@@ -60,9 +60,11 @@ SIMULATOR_SLIMMER_INTEGRATION_UDID='<disposable simulator UDID>' swift test
 
 The integration test previews, applies, verifies, restores, and re-verifies service changes, then returns the device to its original power state.
 
-## Distribution
+## Releases and updates
 
-Release builds target Apple Silicon and use Developer ID signing, Apple notarization, and DMG distribution outside the Mac App Store.
+Release builds target Apple Silicon and use Developer ID signing and Apple notarization. Tagged versions are published directly to [GitHub Releases](https://github.com/lvxiaohai/SimulatorSlimmer/releases).
+
+Simulator Slimmer uses Sparkle to check the latest GitHub Release automatically. The application menu also provides **Check for Updates…**. Update archives are verified with an EdDSA signature before installation.
 
 Validate the release scripts and build an unsigned local app with:
 
@@ -72,7 +74,7 @@ scripts/build-release-app.sh --debug-unsigned --clean
 scripts/smoke-release-app.sh
 ```
 
-A notarized DMG requires a Developer ID Application certificate, `create-dmg`, and App Store Connect API credentials supplied through environment variables. Credentials and generated artifacts must never be committed.
+A notarized DMG requires a Developer ID Application certificate, `create-dmg`, and Apple notarization credentials supplied through environment variables. Creating and pushing a `v<version>` tag runs the GitHub Actions release workflow and publishes the DMG, signed update ZIP, and `appcast.xml` as GitHub Release assets. Credentials and generated artifacts must never be committed.
 
 ## Background
 

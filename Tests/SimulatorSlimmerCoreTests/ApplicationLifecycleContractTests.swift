@@ -30,6 +30,30 @@ struct ApplicationLifecycleContractTests {
     #expect(source.contains("DistributedNotificationCenter.default().post"))
   }
 
+  @Test("主应用使用 GitHub Release 检查 Sparkle 更新")
+  func appChecksGitHubReleasesForSparkleUpdates() throws {
+    let appSource = try source(
+      "App/SimulatorSlimmer/App/SimulatorSlimmerApp.swift"
+    )
+    let commandSource = try source(
+      "App/SimulatorSlimmer/App/Commands.swift"
+    )
+    let infoPlist = try source("App/SimulatorSlimmer/Info.plist")
+    let workflow = try source(".github/workflows/release.yml")
+
+    #expect(appSource.contains("SPUStandardUpdaterController"))
+    #expect(commandSource.contains("checkForUpdates(nil)"))
+    #expect(
+      infoPlist.contains(
+        "https://github.com/lvxiaohai/SimulatorSlimmer/releases/latest/download/appcast.xml"
+      )
+    )
+    #expect(infoPlist.contains("SUPublicEDKey"))
+    #expect(workflow.contains("gh release create"))
+    #expect(workflow.contains("SPARKLE_ED_PRIVATE_KEY"))
+    #expect(!workflow.localizedCaseInsensitiveContains("cloudflare"))
+  }
+
   @Test("Helper 打开主应用且设备子菜单才读取应用")
   func helperOpensMainApplicationAndLazilyLoadsApplications() throws {
     let source = try source(

@@ -1,5 +1,6 @@
 import AppKit
 import SimulatorSlimmerCore
+import Sparkle
 import SwiftUI
 
 private let stopMenuHelperNotification = Notification.Name(
@@ -21,6 +22,11 @@ struct SimulatorSlimmerApp: App {
   @AppStorage("menuBarEnabled") private var menuBarEnabled = true
   @State private var model: AppModel
   @State private var menuHelperManager = MenuHelperManager()
+  private let updaterController = SPUStandardUpdaterController(
+    startingUpdater: true,
+    updaterDelegate: nil,
+    userDriverDelegate: nil
+  )
 
   init() {
     _model = State(initialValue: AppModel(workspace: WorkspaceFactory.make()))
@@ -41,7 +47,10 @@ struct SimulatorSlimmerApp: App {
     }
     .defaultSize(width: 1_180, height: 760)
     .commands {
-      SimulatorSlimmerCommands(model: model)
+      SimulatorSlimmerCommands(
+        model: model,
+        updaterController: updaterController
+      )
     }
   }
 }

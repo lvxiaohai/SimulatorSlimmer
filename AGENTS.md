@@ -16,6 +16,7 @@
 - Keep user-facing text in `Localizable.xcstrings`; the current interface language is Simplified Chinese.
 - Do not copy or vendor code, UI, branding, copy, or assets from third-party projects.
 - Do not commit credentials, signing keys, build output, DMGs, ZIP files, or local Xcode state.
+- Publish releases only through GitHub Releases; do not add a separate download host.
 
 ## Safety invariants
 
@@ -50,5 +51,7 @@ For release-script changes:
 ```bash
 scripts/test-release-scripts.sh
 ```
+
+Release tags use `v<MARKETING_VERSION>`. Keep `CFBundleVersion` increasing because Sparkle uses it to order updates.
 
 Never run destructive integration tests against a developer's everyday simulator. Use `SIMULATOR_SLIMMER_INTEGRATION_UDID` only with a dedicated disposable device.

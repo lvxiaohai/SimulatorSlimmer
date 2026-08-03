@@ -43,6 +43,7 @@ mode="debug"
 configuration="Debug"
 developer_id_application="${DEVELOPER_ID_APPLICATION:-}"
 development_team="${DEVELOPMENT_TEAM:-}"
+build_number_override="${SIMULATOR_SLIMMER_BUILD_NUMBER:-}"
 skip_zip=0
 clean=0
 temporary_app=""
@@ -72,6 +73,9 @@ usage() {
 Release 模式必需环境变量：
   DEVELOPER_ID_APPLICATION  完整的 Developer ID Application 签名身份
   DEVELOPMENT_TEAM          Apple Developer Team ID
+
+可选环境变量：
+  SIMULATOR_SLIMMER_BUILD_NUMBER  覆盖 CFBundleVersion，必须是正整数
 
 脚本测试模式：
   SIMULATOR_SLIMMER_SCRIPT_TESTING=1 时，才允许通过 XCODEBUILD、DITTO、
@@ -207,6 +211,10 @@ if [[ "$mode" == "release" ]]; then
     exit 2
   fi
 fi
+if [[ -n "$build_number_override" ]] && ! [[ "$build_number_override" =~ ^[1-9][0-9]*$ ]]; then
+  echo "SIMULATOR_SLIMMER_BUILD_NUMBER 必须是正整数。" >&2
+  exit 2
+fi
 
 zip_name="SimulatorSlimmer-Debug-macOS.zip"
 if [[ "$mode" == "release" ]]; then
@@ -234,6 +242,9 @@ xcode_arguments=(
   -destination "generic/platform=macOS"
   -derivedDataPath "$derived_data_path"
 )
+if [[ -n "$build_number_override" ]]; then
+  xcode_arguments+=(CURRENT_PROJECT_VERSION="$build_number_override")
+fi
 
 if [[ "$mode" == "debug" ]]; then
   "$xcodebuild_cmd" "${xcode_arguments[@]}" \

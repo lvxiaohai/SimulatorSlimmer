@@ -8,9 +8,11 @@ scripts=(
   scripts/build-release-app.sh
   scripts/build-dmg.sh
   scripts/smoke-release-app.sh
+  scripts/generate-appcast.sh
   scripts/test-build-release-app.sh
   scripts/test-build-dmg.sh
   scripts/test-smoke-release-app.sh
+  scripts/test-generate-appcast.sh
   scripts/test-release-scripts.sh
 )
 
@@ -32,7 +34,8 @@ echo "== 发布脚本行为测试 =="
 for test_script in \
   scripts/test-build-release-app.sh \
   scripts/test-build-dmg.sh \
-  scripts/test-smoke-release-app.sh; do
+  scripts/test-smoke-release-app.sh \
+  scripts/test-generate-appcast.sh; do
   echo
   echo "运行：$test_script"
   /bin/bash "$test_script"

@@ -36,5 +36,15 @@
 	<true/>
 	<key>NSRequiresAquaSystemAppearance</key>
 	<false/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/lvxiaohai/SimulatorSlimmer/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>wJrerlpdsuxvZ2QDPbvytTnd0vKtu/EeBOhC7fW8mb8=</string>
 </dict>
 </plist>

@@ -31,6 +31,7 @@
 		B00000000000000000000017 /* MenuHelperMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000019 /* MenuHelperMain.swift */; };
 		B00000000000000000000018 /* SimulatorSlimmerCore in Frameworks */ = {isa = PBXBuildFile; productRef = F00000000000000000000003 /* SimulatorSlimmerCore */; };
 		B00000000000000000000019 /* SimulatorSlimmerMenu.app in Embed Menu Helper */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001A /* SimulatorSlimmerMenu.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		B0000000000000000000001A /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F00000000000000000000005 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -92,6 +93,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B00000000000000000000012 /* SimulatorSlimmerCore in Frameworks */,
+				B0000000000000000000001A /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -272,6 +274,7 @@
 			name = SimulatorSlimmer;
 			packageProductDependencies = (
 				F00000000000000000000002 /* SimulatorSlimmerCore */,
+				F00000000000000000000005 /* Sparkle */,
 			);
 			productName = SimulatorSlimmer;
 			productReference = A00000000000000000000014 /* SimulatorSlimmer.app */;
@@ -325,6 +328,7 @@
 			mainGroup = C00000000000000000000001;
 			packageReferences = (
 				F00000000000000000000001 /* XCLocalSwiftPackageReference "." */,
+				F00000000000000000000004 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			productRefGroup = C00000000000000000000002 /* Products */;
 			projectDirPath = "";
@@ -663,6 +667,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		F00000000000000000000004 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		F00000000000000000000002 /* SimulatorSlimmerCore */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -673,6 +688,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F00000000000000000000001 /* XCLocalSwiftPackageReference "." */;
 			productName = SimulatorSlimmerCore;
+		};
+		F00000000000000000000005 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F00000000000000000000004 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

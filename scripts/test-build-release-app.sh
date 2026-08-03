@@ -24,12 +24,15 @@ printf '%s\n' "$*" >> "$XCODEBUILD_LOG"
 
 configuration=""
 derived_data_path=""
+current_project_version="7"
 previous=""
 for argument in "$@"; do
   if [[ "$previous" == "-configuration" ]]; then
     configuration="$argument"
   elif [[ "$previous" == "-derivedDataPath" ]]; then
     derived_data_path="$argument"
+  elif [[ "$argument" == CURRENT_PROJECT_VERSION=* ]]; then
+    current_project_version="${argument#CURRENT_PROJECT_VERSION=}"
   fi
   previous="$argument"
 done
@@ -46,7 +49,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>${FAKE_BUNDLE_ID:-com.neolabsapp.simulatorslimmer}</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>7</string>
+<key>CFBundleVersion</key><string>$current_project_version</string>
 </dict></plist>
 PLIST
 : > "$app/Contents/MacOS/SimulatorSlimmer"
@@ -193,6 +196,26 @@ fi
 /usr/bin/grep -Fq '模式：Release (Developer ID)' <<<"$release_output"
 /usr/bin/grep -Fq 'dSYM：' <<<"$release_output"
 echo "build-release-app Developer ID Release 模式测试通过。"
+
+: > "$xcodebuild_log"
+override_output="$(
+  SIMULATOR_SLIMMER_BUILD_NUMBER=99 \
+    DEVELOPER_ID_APPLICATION='Developer ID Application: 测试签名 (TESTTEAM01)' \
+    DEVELOPMENT_TEAM=TESTTEAM01 \
+    run_build "$tmp_dir/build-number-derived" "$tmp_dir/build-number-dist" \
+      --release-developer-id --skip-zip
+)"
+/usr/bin/grep -Fq 'CURRENT_PROJECT_VERSION=99' "$xcodebuild_log"
+/usr/bin/grep -Fq '版本：0.1.0 (99)' <<<"$override_output"
+echo "build-release-app 构建号覆盖测试通过。"
+
+if SIMULATOR_SLIMMER_BUILD_NUMBER=0 run_build \
+  "$tmp_dir/invalid-build-derived" "$tmp_dir/invalid-build-dist" \
+  >"$tmp_dir/invalid-build.out" 2>&1; then
+  echo "无效构建号不应被接受。" >&2
+  exit 1
+fi
+/usr/bin/grep -Fq '必须是正整数' "$tmp_dir/invalid-build.out"
 
 export FAKE_ARCHS="x86_64 arm64"
 if DEVELOPER_ID_APPLICATION='Developer ID Application: 测试签名 (TESTTEAM01)' \

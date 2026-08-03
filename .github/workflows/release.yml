@@ -1,0 +1,114 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Test and Build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run tests
+        run: swift test
+
+      - name: Build app
+        run: |
+          xcodebuild build \
+            -project SimulatorSlimmer.xcodeproj \
+            -scheme SimulatorSlimmer \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$RUNNER_TEMP/SimulatorSlimmer" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Test release scripts
+        run: scripts/test-release-scripts.sh
+
+      - name: Verify update configuration
+        run: |
+          APP="$RUNNER_TEMP/SimulatorSlimmer/Build/Products/Debug/SimulatorSlimmer.app"
+          test -d "$APP/Contents/Frameworks/Sparkle.framework"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP/Contents/Info.plist")" = \
+            'https://github.com/lvxiaohai/SimulatorSlimmer/releases/latest/download/appcast.xml'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' "$APP/Contents/Info.plist")" = true
+          test "$(/usr/libexec/PlistBuddy -c 'Print :SUAutomaticallyUpdate' "$APP/Contents/Info.plist")" = true
+
+  release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Validate tag version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PROJECT_VERSION=$(xcodebuild -project SimulatorSlimmer.xcodeproj -scheme SimulatorSlimmer \
+            -configuration Release -showBuildSettings \
+            | awk '/MARKETING_VERSION =/ {print $3; exit}')
+          test "$TAG_VERSION" = "$PROJECT_VERSION"
+
+      - name: Install packaging dependency
+        run: brew install create-dmg
+
+      - name: Import Developer ID certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          printf '%s' "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: Build, sign, and notarize
+        env:
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+          APP_STORE_API_KEY_ID: ${{ secrets.APP_STORE_API_KEY_ID }}
+          APP_STORE_API_ISSUER_ID: ${{ secrets.APP_STORE_API_ISSUER_ID }}
+          APP_STORE_API_PRIVATE_KEY: ${{ secrets.APP_STORE_API_PRIVATE_KEY }}
+        run: |
+          API_KEY_PATH="$RUNNER_TEMP/AuthKey_${APP_STORE_API_KEY_ID}.p8"
+          printf '%s' "$APP_STORE_API_PRIVATE_KEY" > "$API_KEY_PATH"
+          chmod 600 "$API_KEY_PATH"
+          SIMULATOR_SLIMMER_BUILD_NUMBER="$GITHUB_RUN_NUMBER" \
+          APP_STORE_API_KEY_FILEPATH="$API_KEY_PATH" \
+            scripts/build-dmg.sh
+
+      - name: Generate signed appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: scripts/generate-appcast.sh
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          INFO_PLIST="dist/SimulatorSlimmer.app/Contents/Info.plist"
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST")
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/SimulatorSlimmer-$VERSION.dmg" \
+            "dist/SimulatorSlimmer-$VERSION-$BUILD.zip" \
+            dist/appcast.xml \
+            --title "Simulator Slimmer $VERSION" \
+            --generate-notes
