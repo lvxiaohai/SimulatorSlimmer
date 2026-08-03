@@ -121,6 +121,32 @@ section() {
   echo "== $1 =="
 }
 
+sign_release_code() {
+  "$codesign_cmd" \
+    --force \
+    --sign "$developer_id_application" \
+    --timestamp \
+    --options runtime \
+    "$1"
+}
+
+verify_release_signature() {
+  local target="$1"
+  local details=""
+  if ! details="$("$codesign_cmd" -dvv "$target" 2>&1)"; then
+    echo "无法读取 Developer ID 签名：$target" >&2
+    exit 1
+  fi
+  if ! /usr/bin/grep -Fq "Authority=$developer_id_application" <<<"$details"; then
+    echo "签名身份不是预期的 Developer ID：$target" >&2
+    exit 1
+  fi
+  if ! /usr/bin/grep -q '^Timestamp=' <<<"$details"; then
+    echo "Developer ID 签名缺少安全时间戳：$target" >&2
+    exit 1
+  fi
+}
+
 require_executable() {
   local path="$1"
   local label="$2"
@@ -344,14 +370,31 @@ if [[ "$mode" == "release" ]]; then
   output_main_executable="$output_app/Contents/MacOS/SimulatorSlimmer"
   output_helper_bundle="$output_app/Contents/Helpers/SimulatorSlimmerMenu.app"
   output_helper_executable="$output_helper_bundle/Contents/MacOS/SimulatorSlimmerMenu"
+  sparkle_framework="$output_app/Contents/Frameworks/Sparkle.framework"
+  sparkle_autoupdate="$sparkle_framework/Versions/Current/Autoupdate"
+  sparkle_updater="$sparkle_framework/Versions/Current/Updater.app"
+  sparkle_downloader="$sparkle_framework/Versions/Current/XPCServices/Downloader.xpc"
+  sparkle_installer="$sparkle_framework/Versions/Current/XPCServices/Installer.xpc"
+  for target in \
+    "$sparkle_framework" \
+    "$sparkle_autoupdate" \
+    "$sparkle_updater" \
+    "$sparkle_downloader" \
+    "$sparkle_installer"; do
+    if [[ ! -e "$target" ]]; then
+      echo "Release App 缺少 Sparkle 签名目标：$target" >&2
+      exit 1
+    fi
+  done
   "$strip_cmd" -S -x "$output_main_executable"
   "$strip_cmd" -S -x "$output_helper_executable"
-  "$codesign_cmd" \
-    --force \
-    --sign "$developer_id_application" \
-    --timestamp \
-    --options runtime \
-    "$output_helper_bundle"
+
+  sign_release_code "$sparkle_autoupdate"
+  sign_release_code "$sparkle_downloader"
+  sign_release_code "$sparkle_installer"
+  sign_release_code "$sparkle_updater"
+  sign_release_code "$sparkle_framework"
+  sign_release_code "$output_helper_bundle"
   "$codesign_cmd" \
     --force \
     --sign "$developer_id_application" \
@@ -361,6 +404,16 @@ if [[ "$mode" == "release" ]]; then
     "$output_app"
   "$codesign_cmd" --verify --strict --verbose=4 "$output_helper_bundle"
   "$codesign_cmd" --verify --deep --strict --verbose=4 "$output_app"
+  for target in \
+    "$sparkle_autoupdate" \
+    "$sparkle_downloader" \
+    "$sparkle_installer" \
+    "$sparkle_updater" \
+    "$sparkle_framework" \
+    "$output_helper_bundle" \
+    "$output_app"; do
+    verify_release_signature "$target"
+  done
 
   section "导出 dSYM"
   output_dsym_zip="$dist_dir/SimulatorSlimmer-$version-dSYM.zip"

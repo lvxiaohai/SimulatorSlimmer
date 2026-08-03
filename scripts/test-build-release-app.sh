@@ -42,7 +42,14 @@ if [[ -z "$configuration" || -z "$derived_data_path" ]]; then
 fi
 
 app="$derived_data_path/Build/Products/$configuration/SimulatorSlimmer.app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS"
+sparkle="$app/Contents/Frameworks/Sparkle.framework/Versions/B"
+mkdir -p \
+  "$app/Contents/MacOS" \
+  "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS" \
+  "$sparkle/Updater.app/Contents/MacOS" \
+  "$sparkle/XPCServices/Downloader.xpc/Contents/MacOS" \
+  "$sparkle/XPCServices/Installer.xpc/Contents/MacOS"
+ln -s B "$app/Contents/Frameworks/Sparkle.framework/Versions/Current"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -56,6 +63,15 @@ PLIST
 chmod +x "$app/Contents/MacOS/SimulatorSlimmer"
 : > "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
 chmod +x "$app/Contents/Helpers/SimulatorSlimmerMenu.app/Contents/MacOS/SimulatorSlimmerMenu"
+: > "$sparkle/Autoupdate"
+: > "$sparkle/Updater.app/Contents/MacOS/Updater"
+: > "$sparkle/XPCServices/Downloader.xpc/Contents/MacOS/Downloader"
+: > "$sparkle/XPCServices/Installer.xpc/Contents/MacOS/Installer"
+chmod +x \
+  "$sparkle/Autoupdate" \
+  "$sparkle/Updater.app/Contents/MacOS/Updater" \
+  "$sparkle/XPCServices/Downloader.xpc/Contents/MacOS/Downloader" \
+  "$sparkle/XPCServices/Installer.xpc/Contents/MacOS/Installer"
 if [[ "$configuration" == "Release" ]]; then
   dsym="$derived_data_path/Build/Products/$configuration/SimulatorSlimmer.app.dSYM"
   mkdir -p "$dsym/Contents/Resources/DWARF"
@@ -81,6 +97,11 @@ cat > "$fake_bin/codesign" <<'FAKE_CODESIGN'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$CODESIGN_LOG"
+if [[ " $* " == *" -dvv "* ]]; then
+  printf '%s\n' \
+    'Authority=Developer ID Application: 测试签名 (TESTTEAM01)' \
+    'Timestamp=Aug 3, 2026 at 12:00:00'
+fi
 FAKE_CODESIGN
 
 cat > "$fake_bin/strip" <<'FAKE_STRIP'
@@ -185,6 +206,14 @@ if [[ "$(/usr/bin/grep -Fc -- '-S -x' "$strip_log")" -ne 2 ]]; then
 fi
 /usr/bin/grep -Fq -- '--force --sign Developer ID Application: 测试签名 (TESTTEAM01) --timestamp --options runtime' "$codesign_log"
 /usr/bin/grep -Fq -- '--force --sign Developer ID Application: 测试签名 (TESTTEAM01) --timestamp --options runtime --entitlements' "$codesign_log"
+for target in \
+  'Sparkle.framework/Versions/Current/Autoupdate' \
+  'Sparkle.framework/Versions/Current/XPCServices/Downloader.xpc' \
+  'Sparkle.framework/Versions/Current/XPCServices/Installer.xpc' \
+  'Sparkle.framework/Versions/Current/Updater.app' \
+  'Sparkle.framework'; do
+  /usr/bin/grep -Fq -- "--options runtime $release_dist/SimulatorSlimmer.app/Contents/Frameworks/$target" "$codesign_log"
+done
 if [[ "$(/usr/bin/grep -Fc -- '--verify --deep --strict --verbose=4' "$codesign_log")" -ne 2 ]]; then
   echo "Release 模式应校验构建目录和导出目录中的 App 签名。" >&2
   exit 1
