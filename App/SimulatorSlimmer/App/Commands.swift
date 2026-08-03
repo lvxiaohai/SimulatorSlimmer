@@ -2,19 +2,20 @@ import Sparkle
 import SwiftUI
 
 struct SimulatorSlimmerCommands: Commands {
+  @AppStorage("appLanguage") private var appLanguage = AppLanguage.system.rawValue
   let model: AppModel
   let updaterController: SPUStandardUpdaterController
 
   var body: some Commands {
     CommandGroup(replacing: .newItem) {
-      Button("command.create-simulator") {
+      Button(L10n.text("command.create-simulator")) {
         model.showCreateSimulator()
       }
       .keyboardShortcut("n", modifiers: .command)
     }
 
     CommandGroup(after: .sidebar) {
-      Button("command.refresh") {
+      Button(L10n.text("command.refresh")) {
         WindowFocus.endTextEditing()
         model.refreshOverview(reason: .manual)
       }
@@ -23,7 +24,7 @@ struct SimulatorSlimmerCommands: Commands {
     }
 
     CommandGroup(replacing: .appSettings) {
-      Button("command.settings") {
+      Button(L10n.text("command.settings")) {
         WindowFocus.endTextEditing()
         model.showSettings()
       }
@@ -31,7 +32,7 @@ struct SimulatorSlimmerCommands: Commands {
     }
 
     CommandGroup(after: .appInfo) {
-      Button("command.check-for-updates") {
+      Button(L10n.text("command.check-for-updates")) {
         updaterController.checkForUpdates(nil)
       }
     }

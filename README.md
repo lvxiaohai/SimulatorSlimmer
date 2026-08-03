@@ -2,7 +2,7 @@
 
 Simulator Slimmer is a native macOS app for inspecting, reducing, and restoring background services in iOS Simulator devices. It also provides guarded tools for managing simulator storage and common device operations.
 
-The app is written in Swift and SwiftUI. Its interface is currently available in Simplified Chinese.
+The app is written in Swift and SwiftUI. Its interface is available in Simplified Chinese and English, with an in-app language selector.
 
 > [!WARNING]
 > Disabling simulator services changes system behavior. Use this app only with disposable or recoverable simulator devices, review every preview, and restore the original state when you finish testing.

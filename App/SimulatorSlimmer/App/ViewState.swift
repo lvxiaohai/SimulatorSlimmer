@@ -1,6 +1,47 @@
 import Foundation
 import SimulatorSlimmerCore
 
+enum AppLanguage: String, CaseIterable, Identifiable {
+  case system
+  case simplifiedChinese = "zh-Hans"
+  case english = "en"
+
+  var id: String { rawValue }
+
+  var identifier: String {
+    switch self {
+    case .system:
+      Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "zh-Hans" : "en"
+    case .simplifiedChinese, .english:
+      rawValue
+    }
+  }
+
+  var locale: Locale {
+    Locale(identifier: identifier)
+  }
+
+  var bundle: Bundle {
+    guard let path = Bundle.main.path(forResource: identifier, ofType: "lproj"),
+      let bundle = Bundle(path: path)
+    else { return .main }
+    return bundle
+  }
+
+  var title: LocalizedStringResource {
+    switch self {
+    case .system: "settings.language.system"
+    case .simplifiedChinese: "settings.language.zh-hans"
+    case .english: "settings.language.english"
+    }
+  }
+
+  static var selected: AppLanguage {
+    let value = UserDefaults.standard.string(forKey: "appLanguage") ?? system.rawValue
+    return AppLanguage(rawValue: value) ?? .system
+  }
+}
+
 enum OverviewRefreshReason {
   case initial
   case manual
@@ -235,13 +276,15 @@ struct BatchOptimizationRun: Identifiable {
 
 enum L10n {
   static func text(_ key: String.LocalizationValue) -> String {
-    String(localized: key)
+    let language = AppLanguage.selected
+    return String(localized: key, bundle: language.bundle, locale: language.locale)
   }
 
   static func formatted(_ key: String.LocalizationValue, _ arguments: CVarArg...) -> String {
-    String(
-      format: String(localized: key),
-      locale: Locale.current,
+    let language = AppLanguage.selected
+    return String(
+      format: String(localized: key, bundle: language.bundle, locale: language.locale),
+      locale: language.locale,
       arguments: arguments
     )
   }

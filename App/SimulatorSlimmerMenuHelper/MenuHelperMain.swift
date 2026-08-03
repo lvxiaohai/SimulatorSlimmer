@@ -7,6 +7,38 @@ private let stopHelperNotification = Notification.Name(
   "com.neolabsapp.simulatorslimmer.stop-menu-helper"
 )
 
+private enum MenuL10n {
+  private static let identifier: String = {
+    let arguments = ProcessInfo.processInfo.arguments
+    if let index = arguments.firstIndex(of: "--language"),
+      arguments.indices.contains(index + 1)
+    {
+      return arguments[index + 1]
+    }
+    return Locale.preferredLanguages.first?.hasPrefix("zh") == true ? "zh-Hans" : "en"
+  }()
+
+  private static let locale = Locale(identifier: identifier)
+  private static let bundle: Bundle = {
+    guard let path = Bundle.main.path(forResource: identifier, ofType: "lproj"),
+      let bundle = Bundle(path: path)
+    else { return .main }
+    return bundle
+  }()
+
+  static func text(_ key: String.LocalizationValue) -> String {
+    String(localized: key, bundle: bundle, locale: locale)
+  }
+
+  static func formatted(_ key: String.LocalizationValue, _ arguments: CVarArg...) -> String {
+    String(
+      format: String(localized: key, bundle: bundle, locale: locale),
+      locale: locale,
+      arguments: arguments
+    )
+  }
+}
+
 @main
 enum SimulatorSlimmerMenuHelper {
   @MainActor
@@ -197,13 +229,19 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     deviceBySubmenu.removeAll(keepingCapacity: true)
     menu.removeAllItems()
     menu.addItem(
-      actionItem(title: "显示主界面", action: #selector(showMainWindow))
+      actionItem(
+        title: MenuL10n.text("menu-bar.show-main-window"),
+        action: #selector(showMainWindow)
+      )
     )
     menu.addItem(.separator())
 
     if let devices {
       if devices.isEmpty {
-        let title = error == nil ? "没有正在运行的模拟器" : "无法读取模拟器"
+        let title =
+          error == nil
+          ? MenuL10n.text("menu-bar.no-running-device")
+          : MenuL10n.text("menu-bar.load-failed")
         let item = disabledItem(title: title)
         item.toolTip = error
         menu.addItem(item)
@@ -213,11 +251,14 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
         }
       }
     } else {
-      menu.addItem(disabledItem(title: "正在读取模拟器…"))
+      menu.addItem(disabledItem(title: MenuL10n.text("menu-bar.loading")))
     }
 
     menu.addItem(.separator())
-    let quitItem = actionItem(title: "退出", action: #selector(quitApplication))
+    let quitItem = actionItem(
+      title: MenuL10n.text("menu-bar.quit"),
+      action: #selector(quitApplication)
+    )
     quitItem.keyEquivalent = "q"
     quitItem.keyEquivalentModifierMask = [.command]
     menu.addItem(quitItem)
@@ -251,16 +292,20 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
   ) {
     submenu.removeAllItems()
     let showItem = actionItem(
-      title: "显示模拟器",
+      title: MenuL10n.text("menu-bar.show-device"),
       action: #selector(showSimulator)
     )
     showItem.image = symbolImage("rectangle.on.rectangle")
     showItem.representedObject = DeviceContext(device: device)
     submenu.addItem(showItem)
     submenu.addItem(.separator())
-    submenu.addItem(disabledItem(title: "点击应用打开数据目录"))
+    submenu.addItem(
+      disabledItem(title: MenuL10n.text("menu-bar.open-application-directory.hint"))
+    )
     submenu.addItem(.separator())
-    submenu.addItem(disabledItem(title: "展开后读取应用"))
+    submenu.addItem(
+      disabledItem(title: MenuL10n.text("menu-bar.expand-to-load-applications"))
+    )
   }
 
   private func loadApplications(
@@ -270,7 +315,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     let currentGeneration = generation
     replaceApplicationRows(
       in: submenu,
-      with: [disabledItem(title: "正在读取应用…")]
+      with: [disabledItem(title: MenuL10n.text("menu-bar.loading-applications"))]
     )
 
     let task = Task { [weak self, weak submenu] in
@@ -307,7 +352,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
         return
       } catch {
         guard generation == currentGeneration else { return }
-        let item = disabledItem(title: "无法读取应用")
+        let item = disabledItem(title: MenuL10n.text("menu-bar.application-load-failed"))
         item.toolTip = error.localizedDescription
         replaceApplicationRows(in: submenu, with: [item])
         applicationTasks.removeValue(forKey: device.id)
@@ -324,7 +369,7 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
   ) {
     var rows: [NSMenuItem] = []
     if applications.isEmpty {
-      rows.append(disabledItem(title: "没有用户应用"))
+      rows.append(disabledItem(title: MenuL10n.text("menu-bar.no-user-applications")))
     } else {
       for application in applications {
         let item = actionItem(
@@ -337,13 +382,16 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
           application: application.application,
           deviceID: device.id
         )
-        item.toolTip = "打开 \(application.application.displayName) 的数据目录"
+        item.toolTip = MenuL10n.formatted(
+          "menu-bar.open-application-directory",
+          application.application.displayName
+        )
         rows.append(item)
       }
     }
 
     if let memoryError {
-      let item = disabledItem(title: "部分内存数据不可用")
+      let item = disabledItem(title: MenuL10n.text("menu-bar.partial-application-data"))
       item.toolTip = memoryError
       rows.append(.separator())
       rows.append(item)

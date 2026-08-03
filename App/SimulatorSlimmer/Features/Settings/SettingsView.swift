@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @AppStorage("appLanguage") private var appLanguage = AppLanguage.system.rawValue
   @AppStorage("automaticRefresh") private var automaticRefresh = true
   @AppStorage("automaticRefreshInterval") private var automaticRefreshInterval = 30.0
   @AppStorage("showUnavailableDevices") private var showUnavailableDevices = false
@@ -45,6 +46,22 @@ struct SettingsView: View {
       VStack(alignment: .leading, spacing: 0) {
         InstrumentSectionLabel(title: "settings.general")
           .padding(.bottom, 10)
+
+        Divider()
+        settingRow(
+          title: L10n.text("settings.language"),
+          summary: L10n.text("settings.language.summary")
+        ) {
+          Picker("settings.language", selection: $appLanguage) {
+            ForEach(AppLanguage.allCases) { language in
+              Text(language.title).tag(language.rawValue)
+            }
+          }
+          .labelsHidden()
+          .controlSize(.regular)
+          .frame(minWidth: 140, alignment: .trailing)
+          .fixedSize(horizontal: true, vertical: false)
+        }
 
         Divider()
         settingToggle(

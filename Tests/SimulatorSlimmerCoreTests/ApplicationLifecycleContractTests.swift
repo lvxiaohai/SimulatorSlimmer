@@ -42,6 +42,14 @@ struct ApplicationLifecycleContractTests {
     let workflow = try source(".github/workflows/release.yml")
 
     #expect(appSource.contains("SPUStandardUpdaterController"))
+    #expect(appSource.contains("checkForUpdatesInBackground()"))
+    #expect(appSource.contains("userDriverDelegate: self"))
+    #expect(
+      appSource.contains(
+        "standardUserDriverShouldHandleShowingScheduledUpdate"
+      )
+    )
+    #expect(appSource.contains("controller.checkForUpdates(nil)"))
     #expect(commandSource.contains("checkForUpdates(nil)"))
     #expect(
       infoPlist.contains(
@@ -49,9 +57,35 @@ struct ApplicationLifecycleContractTests {
       )
     )
     #expect(infoPlist.contains("SUPublicEDKey"))
+    #expect(
+      infoPlist.contains(
+        "<key>SUAutomaticallyUpdate</key>\n\t<false/>"
+      )
+    )
     #expect(workflow.contains("gh release create"))
     #expect(workflow.contains("SPARKLE_ED_PRIVATE_KEY"))
     #expect(!workflow.localizedCaseInsensitiveContains("cloudflare"))
+  }
+
+  @Test("应用菜单与菜单栏 Helper 跟随应用语言")
+  func menusFollowSelectedApplicationLanguage() throws {
+    let appSource = try source(
+      "App/SimulatorSlimmer/App/SimulatorSlimmerApp.swift"
+    )
+    let commandSource = try source(
+      "App/SimulatorSlimmer/App/Commands.swift"
+    )
+    let helperSource = try source(
+      "App/SimulatorSlimmerMenuHelper/MenuHelperMain.swift"
+    )
+    let project = try source("SimulatorSlimmer.xcodeproj/project.pbxproj")
+
+    #expect(commandSource.contains("@AppStorage(\"appLanguage\")"))
+    #expect(commandSource.contains("Button(L10n.text(\"command.settings\"))"))
+    #expect(appSource.contains("language: selectedLanguage"))
+    #expect(appSource.contains("process.arguments = [\"--language\", language.identifier]"))
+    #expect(helperSource.contains("MenuL10n.text(\"menu-bar.show-main-window\")"))
+    #expect(project.contains("Localizable.xcstrings in Menu Resources"))
   }
 
   @Test("Helper 打开主应用且设备子菜单才读取应用")

@@ -14,19 +14,50 @@ final class SimulatorSlimmerAppDelegate: NSObject, NSApplicationDelegate {
   }
 }
 
+@MainActor
+private final class UpdateController: NSObject, @preconcurrency SPUStandardUserDriverDelegate {
+  lazy var controller = SPUStandardUpdaterController(
+    startingUpdater: true,
+    updaterDelegate: nil,
+    userDriverDelegate: self
+  )
+
+  override init() {
+    super.init()
+    let updater = controller.updater
+    guard updater.canCheckForUpdates else { return }
+    updater.checkForUpdatesInBackground()
+  }
+
+  var supportsGentleScheduledUpdateReminders: Bool { true }
+
+  func standardUserDriverShouldHandleShowingScheduledUpdate(
+    _ update: SUAppcastItem,
+    andInImmediateFocus immediateFocus: Bool
+  ) -> Bool {
+    immediateFocus
+  }
+
+  func standardUserDriverWillHandleShowingUpdate(
+    _ handleShowingUpdate: Bool,
+    forUpdate update: SUAppcastItem,
+    state: SPUUserUpdateState
+  ) {
+    guard !handleShowingUpdate else { return }
+    controller.checkForUpdates(nil)
+  }
+}
+
 @main
 @MainActor
 struct SimulatorSlimmerApp: App {
   @NSApplicationDelegateAdaptor(SimulatorSlimmerAppDelegate.self)
   private var appDelegate
+  @AppStorage("appLanguage") private var appLanguage = AppLanguage.system.rawValue
   @AppStorage("menuBarEnabled") private var menuBarEnabled = true
   @State private var model: AppModel
   @State private var menuHelperManager = MenuHelperManager()
-  private let updaterController = SPUStandardUpdaterController(
-    startingUpdater: true,
-    updaterDelegate: nil,
-    userDriverDelegate: nil
-  )
+  private let updateController = UpdateController()
 
   init() {
     _model = State(initialValue: AppModel(workspace: WorkspaceFactory.make()))
@@ -36,12 +67,14 @@ struct SimulatorSlimmerApp: App {
     Window("Simulator Slimmer", id: "main") {
       WorkspaceRootView(model: model)
         .environment(model)
+        .environment(\.locale, selectedLanguage.locale)
         .tint(.mint)
         .frame(minWidth: 980, minHeight: 640)
         .background {
           MenuHelperInstaller(
             manager: menuHelperManager,
-            isEnabled: menuBarEnabled
+            isEnabled: menuBarEnabled,
+            language: selectedLanguage
           )
         }
     }
@@ -49,24 +82,32 @@ struct SimulatorSlimmerApp: App {
     .commands {
       SimulatorSlimmerCommands(
         model: model,
-        updaterController: updaterController
+        updaterController: updateController.controller
       )
     }
+  }
+
+  private var selectedLanguage: AppLanguage {
+    AppLanguage(rawValue: appLanguage) ?? .system
   }
 }
 
 private struct MenuHelperInstaller: View {
   let manager: MenuHelperManager
   let isEnabled: Bool
+  let language: AppLanguage
 
   var body: some View {
     Color.clear
       .frame(width: 0, height: 0)
       .onAppear {
-        manager.configure(isEnabled: isEnabled)
+        manager.configure(isEnabled: isEnabled, language: language)
       }
       .onChange(of: isEnabled) {
-        manager.configure(isEnabled: isEnabled)
+        manager.configure(isEnabled: isEnabled, language: language)
+      }
+      .onChange(of: language) {
+        manager.configure(isEnabled: isEnabled, language: language)
       }
   }
 }
@@ -76,10 +117,12 @@ final class MenuHelperManager {
   private var launchedProcess: Process?
   private var pendingLaunchTask: Task<Void, Never>?
   private var isEnabled = false
+  private var language = AppLanguage.system
   private var remainingLaunchAttempts = 0
 
-  func configure(isEnabled: Bool) {
+  func configure(isEnabled: Bool, language: AppLanguage) {
     self.isEnabled = isEnabled
+    self.language = language
     pendingLaunchTask?.cancel()
     pendingLaunchTask = nil
     if isEnabled {
@@ -130,6 +173,7 @@ final class MenuHelperManager {
 
     let process = Process()
     process.executableURL = executableURL
+    process.arguments = ["--language", language.identifier]
     process.standardOutput = FileHandle.nullDevice
     process.standardError = FileHandle.nullDevice
     process.terminationHandler = { [weak self, weak process] _ in

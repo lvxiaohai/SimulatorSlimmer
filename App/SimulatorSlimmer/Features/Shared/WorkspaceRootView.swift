@@ -4,6 +4,7 @@ import SwiftUI
 
 struct WorkspaceRootView: View {
   @Bindable var model: AppModel
+  @AppStorage("appLanguage") private var appLanguage = AppLanguage.system.rawValue
   @AppStorage("automaticRefresh") private var automaticRefresh = true
   @AppStorage("automaticRefreshInterval") private var automaticRefreshInterval = 30.0
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -31,6 +32,7 @@ struct WorkspaceRootView: View {
           value: model.toast?.id
         )
     }
+    .id(appLanguage)
     .navigationSplitViewStyle(.balanced)
     .toolbar {
       ToolbarItem(placement: .primaryAction) {
@@ -259,6 +261,7 @@ private struct BatchOptimizationSheet: View {
 
 private struct SettingsSheet: View {
   @Bindable var model: AppModel
+  @AppStorage("appLanguage") private var appLanguage = AppLanguage.system.rawValue
 
   var body: some View {
     VStack(spacing: 0) {
@@ -282,7 +285,12 @@ private struct SettingsSheet: View {
     .frame(width: 760, height: 620)
     .background(Color.instrumentBackground)
     .suppressInitialFocus()
+    .environment(\.locale, selectedLanguage.locale)
     .accessibilityIdentifier("settings.sheet")
+  }
+
+  private var selectedLanguage: AppLanguage {
+    AppLanguage(rawValue: appLanguage) ?? .system
   }
 }
 
