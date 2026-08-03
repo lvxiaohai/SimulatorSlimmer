@@ -62,6 +62,11 @@ struct ApplicationLifecycleContractTests {
         "<key>SUAutomaticallyUpdate</key>\n\t<false/>"
       )
     )
+    #expect(
+      infoPlist.contains(
+        "<key>SUAllowsAutomaticUpdates</key>\n\t<false/>"
+      )
+    )
     #expect(workflow.contains("gh release create"))
     #expect(workflow.contains("SPARKLE_ED_PRIVATE_KEY"))
     #expect(!workflow.localizedCaseInsensitiveContains("cloudflare"))

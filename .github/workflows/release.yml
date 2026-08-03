@@ -40,6 +40,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$APP/Contents/Info.plist")" = \
             'https://github.com/lvxiaohai/SimulatorSlimmer/releases/latest/download/appcast.xml'
           test "$(/usr/libexec/PlistBuddy -c 'Print :SUEnableAutomaticChecks' "$APP/Contents/Info.plist")" = true
+          test "$(/usr/libexec/PlistBuddy -c 'Print :SUAllowsAutomaticUpdates' "$APP/Contents/Info.plist")" = false
           test "$(/usr/libexec/PlistBuddy -c 'Print :SUAutomaticallyUpdate' "$APP/Contents/Info.plist")" = false
 
   release:
