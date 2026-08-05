@@ -130,10 +130,8 @@ private final class MenuBarController: NSObject, NSMenuDelegate {
     guard statusItem == nil else { return }
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     if let button = item.button {
-      let image = NSImage(
-        systemSymbolName: "iphone.gen3",
-        accessibilityDescription: "Simulator Slimmer"
-      )
+      let image = Bundle.main.image(forResource: "MenuBarIcon")
+      image?.size = NSSize(width: 20, height: 20)
       image?.isTemplate = true
       button.image = image
       button.target = self

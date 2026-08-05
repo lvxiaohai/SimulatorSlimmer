@@ -30,6 +30,22 @@ struct ApplicationLifecycleContractTests {
     #expect(source.contains("DistributedNotificationCenter.default().post"))
   }
 
+  @Test("菜单栏使用品牌模板图标")
+  func menuBarUsesBrandedTemplateIcon() throws {
+    let helperSource = try source(
+      "App/SimulatorSlimmerMenuHelper/MenuHelperMain.swift"
+    )
+    let icon = try source(
+      "App/SimulatorSlimmerMenuHelper/MenuBarIcon.svg"
+    )
+    let project = try source("SimulatorSlimmer.xcodeproj/project.pbxproj")
+
+    #expect(helperSource.contains("image(forResource: \"MenuBarIcon\")"))
+    #expect(helperSource.contains("image?.isTemplate = true"))
+    #expect(icon.contains("viewBox=\"0 0 20 20\""))
+    #expect(project.contains("MenuBarIcon.svg in Menu Resources"))
+  }
+
   @Test("主应用使用 GitHub Release 检查 Sparkle 更新")
   func appChecksGitHubReleasesForSparkleUpdates() throws {
     let appSource = try source(

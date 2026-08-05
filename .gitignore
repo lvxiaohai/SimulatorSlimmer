@@ -9,6 +9,7 @@ xcuserdata/
 
 # 构建产物
 .build/
+.swiftpm/
 .derived-data/
 build/
 DerivedData/
