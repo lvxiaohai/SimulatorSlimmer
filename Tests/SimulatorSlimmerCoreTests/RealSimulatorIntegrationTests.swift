@@ -10,7 +10,7 @@ private let integrationSimulatorUDID = ProcessInfo.processInfo.environment[
 @Suite("真实 Simulator 集成", .serialized)
 struct RealSimulatorIntegrationTests {
   @Test(
-    "专用设备完成精简、验证、恢复与电源状态闭环",
+    "专用设备完成精简、恢复、存储清理与启动闭环",
     .enabled(
       if: integrationSimulatorUDID != nil,
       "仅在设置 SIMULATOR_SLIMMER_INTEGRATION_UDID 时运行"
@@ -86,6 +86,46 @@ struct RealSimulatorIntegrationTests {
       finalOverview.inventory.devices.first { $0.id == deviceID }
     )
     #expect(finalDevice.state == initialDevice.state)
+
+    func run(_ operation: SimulatorOperation) async throws {
+      _ = try await workspace.preview(operation)
+      let receipt = try #require(
+        try await collectIntegrationEvents(await workspace.perform(operation)).last?.receipt
+      )
+      try #require(
+        receipt.status == .succeeded,
+        Comment(rawValue: "\(operation.kind): \(receipt.messages.suffix(3))")
+      )
+    }
+
+    if finalDevice.state == .booted {
+      try await run(.shutdown(deviceID: deviceID))
+    }
+    // 关机后的宿主缓存写入可能尚未结束，等待后再建立清理基线。
+    try await Task.sleep(for: .seconds(5))
+    let dataPath = try #require(finalDevice.dataPath)
+    let marker = dataPath.appendingPathComponent(
+      "Library/Caches/SimulatorSlimmer-\(UUID().uuidString)")
+    try Data("清理验证".utf8).write(to: marker)
+    defer { try? fileManager.removeItem(at: marker) }
+    try await run(.scanStorage(deviceID: deviceID))
+    let snapshot = try await workspace.inspect(deviceID)
+    let plan = try #require(snapshot.latestStoragePlan)
+    try await run(
+      .cleanStorage(
+        deviceID: deviceID, planID: plan.id,
+        categoryIDs: Set(plan.categories.filter(\.canClean).map(\.id)),
+        preserveBootState: true
+      ))
+    #expect(!fileManager.fileExists(atPath: marker.path))
+    let cleanedDevice = try await SimctlAdapter(runner: runner).validatedDevice(deviceID)
+    #expect(cleanedDevice.state == .shutdown)
+    try await run(.boot(deviceID: deviceID))
+    let bootedDevice = try await SimctlAdapter(runner: runner).validatedDevice(deviceID)
+    #expect(bootedDevice.state == .booted)
+    if initialDevice.state == .shutdown {
+      try await run(.shutdown(deviceID: deviceID))
+    }
 
     let isolatedReceipts = try await receiptStore.allReceipts()
     #expect(!isolatedReceipts.isEmpty)

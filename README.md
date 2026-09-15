@@ -58,7 +58,7 @@ Simulator integration tests are skipped by default. Run them only against a dedi
 SIMULATOR_SLIMMER_INTEGRATION_UDID='<disposable simulator UDID>' swift test
 ```
 
-The integration test previews, applies, verifies, restores, and re-verifies service changes, then returns the device to its original power state.
+The integration test previews, applies, verifies, restores, and re-verifies service changes, verifies storage cleanup and a subsequent boot, then returns the device to its original power state.
 
 ## Releases and updates
 
