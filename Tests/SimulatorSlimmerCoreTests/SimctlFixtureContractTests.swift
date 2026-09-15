@@ -5,6 +5,26 @@ import Testing
 
 @Suite("CoreSimulator 输出契约")
 struct SimctlFixtureContractTests {
+  @Test("设备兼容性按版本数值比较并补齐省略的零", arguments: [
+    ("27.0.0", "65535.255.255", "27.0", true),
+    ("28.0.0", "65535.255.255", "28.0", true),
+    ("29.0.0", "65535.255.255", "29", true),
+    ("27.0", "28.0", "28.0.0", true),
+    ("27.0.1", "65535.255.255", "27.0", false),
+    ("28.0.0", "65535.255.255", "27.9", false),
+    ("27.0", "28.0", "28.0.1", false),
+    ("27.0", "28.2", "28.10", false),
+  ])
+  func deviceTypeRuntimeVersionBounds(
+    minimum: String, maximum: String, runtime: String, expected: Bool
+  ) {
+    let deviceType = SimulatorDeviceType(
+      id: "test-device", name: "测试设备", productFamily: "iPhone",
+      minimumRuntimeVersion: minimum, maximumRuntimeVersion: maximum
+    )
+    #expect(deviceType.supports(runtimeVersion: runtime) == expected)
+  }
+
   @Test("simctl Runtime 与设备清单可转换为领域模型")
   func inventoryFixturesDecodeThroughProductionAdapter() async throws {
     let runtimeJSON = try fixtureText(

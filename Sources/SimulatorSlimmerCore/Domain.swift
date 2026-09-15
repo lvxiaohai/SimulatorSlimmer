@@ -90,8 +90,16 @@ public struct SimulatorDeviceType: Codable, Hashable, Sendable, Identifiable {
   }
 
   public func supports(runtimeVersion: String) -> Bool {
-    minimumRuntimeVersion.compare(runtimeVersion, options: .numeric) != .orderedDescending
-      && maximumRuntimeVersion.compare(runtimeVersion, options: .numeric) != .orderedAscending
+    let componentCount = [minimumRuntimeVersion, maximumRuntimeVersion, runtimeVersion]
+      .map { $0.split(separator: ".", omittingEmptySubsequences: false).count }.max() ?? 0
+    func normalized(_ version: String) -> String {
+      var components = version.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+      components += Array(repeating: "0", count: componentCount - components.count)
+      return components.joined(separator: ".")
+    }
+    let runtime = normalized(runtimeVersion)
+    return normalized(minimumRuntimeVersion).compare(runtime, options: .numeric) != .orderedDescending
+      && normalized(maximumRuntimeVersion).compare(runtime, options: .numeric) != .orderedAscending
   }
 }
 
