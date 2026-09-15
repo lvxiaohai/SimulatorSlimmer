@@ -46,8 +46,8 @@ struct SimctlFixtureContractTests {
     #expect(tablet.dataSize == 2_147_483_648)
   }
 
-  @Test("已启动设备显示模拟器时不再重复等待启动完成")
-  func openingBootedSimulatorSkipsBootStatus() async throws {
+  @Test("显示设备兼容新旧 Xcode 且不重复启动设备", arguments: [true, false])
+  func openingBootedSimulatorSkipsBootStatus(useDeviceHub: Bool) async throws {
     let runtimeJSON = try fixtureText(
       named: "simctl-list-runtimes",
       extension: "json"
@@ -57,15 +57,51 @@ struct SimctlFixtureContractTests {
       extension: "json"
     )
     let deviceID = "11111111-2222-4333-8444-555555555555"
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    let developer = root.appendingPathComponent("Xcode Fixture.app/Contents/Developer")
+    let app =
+      useDeviceHub
+      ? developer.deletingLastPathComponent().appendingPathComponent("Applications/DeviceHub.app")
+      : developer.appendingPathComponent("Applications/Simulator.app")
+    try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let openArguments =
+      useDeviceHub
+      ? "-a \(app.path) devices:///manage/select?id=\(deviceID)"
+      : "-a \(app.path) --args -CurrentDeviceUDID \(deviceID)"
     let runner = FixtureCommandRunner(outputs: [
       "simctl list runtimes -j": runtimeJSON,
       "simctl list devices -j": deviceJSON,
-      "-a Simulator --args -CurrentDeviceUDID \(deviceID)": "",
+      "--print-path": developer.path + "\n",
+      openArguments: "",
     ])
 
     try await SimctlAdapter(runner: runner).openSimulator(
       SimulatorID(rawValue: deviceID)
     )
+  }
+
+  @Test("显示入口失败返回可本地化错误", arguments: [true, false])
+  func simulatorWindowErrorsAreTyped(invalidDirectory: Bool) async throws {
+    let developerPath = invalidDirectory ? "" : "/missing-\(UUID().uuidString)/Contents/Developer"
+    let runner = FixtureCommandRunner(outputs: [
+      "simctl list runtimes -j": try fixtureText(named: "simctl-list-runtimes", extension: "json"),
+      "simctl list devices -j": try fixtureText(named: "simctl-list-devices", extension: "json"),
+      "--print-path": developerPath,
+    ])
+    do {
+      try await SimctlAdapter(runner: runner).openSimulator(
+        SimulatorID(rawValue: "11111111-2222-4333-8444-555555555555")
+      )
+      Issue.record("缺少显示应用时不应成功")
+    } catch let error as SimulatorWorkspaceError {
+      #expect(error.localizationKey != nil)
+      switch error {
+      case .invalidDeveloperDirectory: #expect(invalidDirectory)
+      case .simulatorApplicationNotFound: #expect(!invalidDirectory)
+      default: Issue.record("错误类型不符合预期：\(error)")
+      }
+    }
   }
 
   @Test("显示模拟器不会启动已关机设备")

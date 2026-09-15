@@ -1131,7 +1131,8 @@ final class AppModel {
       } catch {
         notice = AppNotice(
           title: L10n.text("device.action-failed.title"),
-          message: error.localizedDescription
+          message: (error as? SimulatorWorkspaceError)?.localizationKey.map { L10n.text($0) }
+            ?? error.localizedDescription
         )
       }
       activeOperationDeviceIDs.remove(deviceID)

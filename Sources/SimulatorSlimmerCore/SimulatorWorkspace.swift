@@ -500,8 +500,8 @@ public actor SimulatorWorkspace: SimulatorWorkspaceClient {
     case .openSimulator:
       return .init(
         operation: operation,
-        title: "在 Apple 模拟器中打开",
-        summary: "启动设备并在 Apple 模拟器中切换到 \(context.device.name)。"
+        title: "显示设备窗口",
+        summary: "在设备窗口中显示 \(context.device.name)，设备需已启动。"
       )
     case .erase:
       saveServiceMutationConfirmation(
@@ -2412,7 +2412,7 @@ extension SimulatorWorkspace {
     switch operation {
     case .boot: "正在启动模拟器"
     case .shutdown: "正在关闭模拟器"
-    case .openSimulator: "正在打开 Apple 模拟器"
+    case .openSimulator: "正在显示设备窗口"
     case .erase: "正在抹掉内容与设置"
     case .delete: "正在永久删除设备"
     case .clone: "正在克隆设备"

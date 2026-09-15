@@ -1015,6 +1015,8 @@ public struct WorkspaceOverview: Sendable {
 
 public enum SimulatorWorkspaceError: LocalizedError, Sendable {
   case xcodeToolsUnavailable(String)
+  case invalidDeveloperDirectory
+  case simulatorApplicationNotFound
   case deviceNotFound(SimulatorID)
   case deviceNotBooted(SimulatorID)
   case deviceUnavailable(String)
@@ -1028,8 +1030,18 @@ public enum SimulatorWorkspaceError: LocalizedError, Sendable {
   case operationAlreadyRunning(SimulatorID)
   case operationPreviewExpired(String)
 
+  public var localizationKey: String.LocalizationValue? {
+    switch self {
+    case .invalidDeveloperDirectory: "error.invalid-developer-directory"
+    case .simulatorApplicationNotFound: "error.simulator-application-not-found"
+    default: nil
+    }
+  }
+
   public var errorDescription: String? {
     switch self {
+    case .invalidDeveloperDirectory, .simulatorApplicationNotFound:
+      localizationKey.map { String(localized: $0) }
     case .xcodeToolsUnavailable(let message): message
     case .deviceNotFound(let id): "找不到模拟器 \(id.rawValue)"
     case .deviceNotBooted(let id): "模拟器 \(id.rawValue) 尚未启动"

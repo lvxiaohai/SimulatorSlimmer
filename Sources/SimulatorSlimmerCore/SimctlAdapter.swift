@@ -368,14 +368,30 @@ struct SimctlAdapter: SimulatorControlling, Sendable {
     guard device.state == .booted else {
       throw SimulatorWorkspaceError.deviceNotBooted(id)
     }
-    _ = try await runner.run(
+    let selectedXcode = try await runner.run(
       Command(
-        executable: openURL,
-        arguments: [
-          "-a", "Simulator", "--args", "-CurrentDeviceUDID", id.rawValue,
-        ],
-        timeout: .seconds(20)
+        executable: URL(fileURLWithPath: "/usr/bin/xcode-select"),
+        arguments: ["--print-path"]
       )
+    )
+    let developerPath = selectedXcode.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard developerPath.hasPrefix("/") else {
+      throw SimulatorWorkspaceError.invalidDeveloperDirectory
+    }
+    let developer = URL(fileURLWithPath: developerPath, isDirectory: true)
+    let deviceHub = developer.deletingLastPathComponent()
+      .appendingPathComponent("Applications/DeviceHub.app")
+    let simulator = developer.appendingPathComponent("Applications/Simulator.app")
+    let arguments: [String]
+    if FileManager.default.fileExists(atPath: deviceHub.path) {
+      arguments = ["-a", deviceHub.path, "devices:///manage/select?id=\(id.rawValue)"]
+    } else if FileManager.default.fileExists(atPath: simulator.path) {
+      arguments = ["-a", simulator.path, "--args", "-CurrentDeviceUDID", id.rawValue]
+    } else {
+      throw SimulatorWorkspaceError.simulatorApplicationNotFound
+    }
+    _ = try await runner.run(
+      Command(executable: openURL, arguments: arguments, timeout: .seconds(20))
     )
   }
 
