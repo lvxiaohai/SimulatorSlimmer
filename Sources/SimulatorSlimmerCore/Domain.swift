@@ -58,7 +58,7 @@ public struct SimulatorRuntime: Codable, Hashable, Sendable, Identifiable {
     guard id.hasPrefix("com.apple.CoreSimulator.SimRuntime.iOS-") else {
       return .unsupportedRuntime
     }
-    guard SimulatorOptimizationPolicy.supportedRuntimeVersions.contains(version) else {
+    guard SimulatorOptimizationPolicy.supports(version) else {
       return .unsupportedRuntime
     }
     return .supported
@@ -127,7 +127,19 @@ public enum OptimizationSupportStatus: String, Codable, Hashable, Sendable {
 }
 
 public enum SimulatorOptimizationPolicy {
-  public static let supportedRuntimeVersions: Set<String> = ["26.3.1", "26.5"]
+  public static let supportedRuntimeVersions: Set<String> = ["26.3.1", "26.5", "27.0"]
+
+  static func supports(
+    _ version: String,
+    catalogVersions: Set<String> = supportedRuntimeVersions
+  ) -> Bool {
+    let components = version.split(separator: ".", omittingEmptySubsequences: false)
+    guard !components.isEmpty,
+      components.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { (48...57).contains($0) } }),
+      let major = Int(components[0])
+    else { return false }
+    return major >= 27 || catalogVersions.contains(version)
+  }
 }
 
 public struct SimulatorDevice: Codable, Hashable, Sendable, Identifiable {

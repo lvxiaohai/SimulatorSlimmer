@@ -88,7 +88,11 @@ struct ServiceCatalog: Sendable {
   }
 
   func applicableServices(runtimeVersion: String) -> [ManagedService] {
-    guard supportedRuntimeVersions.contains(runtimeVersion) else { return [] }
+    guard
+      SimulatorOptimizationPolicy.supports(
+        runtimeVersion, catalogVersions: supportedRuntimeVersions
+      )
+    else { return [] }
     guard let major = Self.runtimeMajor(runtimeVersion) else { return [] }
     return services.filter { service in
       if let minimum = service.minimumRuntimeMajor, major < minimum { return false }

@@ -10,7 +10,7 @@ struct ServiceCatalogContractTests {
     let catalog = try loadCatalog()
 
     #expect(catalog.schemaVersion == 1)
-    #expect(catalog.supportedRuntimeVersions == ["26.3.1", "26.5"])
+    #expect(catalog.supportedRuntimeVersions == ["26.3.1", "26.5", "27.0"])
     #expect(catalog.categories.count == 15)
     #expect(catalog.services.count == 171)
     #expect(catalog.categories.allSatisfy { containsHanCharacter($0.name) })
@@ -145,16 +145,17 @@ struct ServiceCatalogContractTests {
     #expect(labels.isDisjoint(with: forbiddenLabels))
   }
 
-  @Test("每项规则都显式限定在已验证的 iOS 26 Runtime")
+  @Test("规则保留最低版本并仅限制已缺失服务的最高版本")
   func everyServiceHasAnExplicitRuntimeRange() throws {
     let catalog = try loadCatalog()
 
     for service in catalog.services {
       let minimum = try #require(service.minimumRuntimeMajor)
-      let maximum = try #require(service.maximumRuntimeMajor)
-      #expect(minimum <= maximum)
       #expect(minimum == 26)
-      #expect(maximum == 26)
+      let removed = [
+        "com.apple.appleidsetupd", "com.apple.askpermissiond", "com.apple.speechmodeltrainingd",
+      ].contains(service.label)
+      #expect(service.maximumRuntimeMajor == (removed ? 26 : nil))
     }
   }
 

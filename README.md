@@ -20,7 +20,7 @@ The app is written in Swift and SwiftUI. Its interface is available in Simplifie
 - Runs a lightweight menu bar helper independently from the main window.
 - Exports diagnostic bundles for troubleshooting.
 
-The bundled service catalog currently supports iOS 26.3.1 and iOS 26.5. Unknown or unsupported runtime versions are read-only.
+The bundled service catalog supports iOS 26.3.1, iOS 26.5, and iOS 27 or later. Future iOS versions reuse the existing service and storage rules without an app update; services absent from the runtime are skipped. iOS 27.0 has been tested locally; automatic support does not imply validation of each future release.
 
 ## Safety model
 

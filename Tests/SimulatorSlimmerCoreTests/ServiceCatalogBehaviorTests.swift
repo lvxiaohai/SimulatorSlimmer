@@ -207,7 +207,50 @@ struct ServiceCatalogBehaviorTests {
     #expect(plan.changes.isEmpty)
   }
 
-  @Test("只允许经过实机验证的精确 Runtime 版本")
+  @Test("iOS 27 及后续版本沿用服务规则")
+  func iOS27UsesVerifiedCatalog() throws {
+    let catalog = try ServiceCatalog.bundled()
+    #expect(
+      catalog.supportedRuntimeVersions == SimulatorOptimizationPolicy.supportedRuntimeVersions)
+    let runtime = SimulatorRuntime(
+      id: "com.apple.CoreSimulator.SimRuntime.iOS-27-0",
+      name: "iOS 27.0", version: "27.0", isAvailable: true
+    )
+    #expect(runtime.optimizationSupport == .supported)
+    let services = catalog.applicableServices(runtimeVersion: "27.0")
+    #expect(services.count == 168)
+    let excluded: Set<String> = [
+      "com.apple.appleidsetupd", "com.apple.askpermissiond", "com.apple.speechmodeltrainingd",
+    ]
+    #expect(Set(services.map(\.label)).isDisjoint(with: excluded))
+    #expect(
+      excluded.isSubset(of: Set(catalog.applicableServices(runtimeVersion: "26.5").map(\.label))))
+    let plan = catalog.plan(
+      deviceID: SimulatorID(rawValue: "11111111-2222-4333-8444-555555555555"),
+      runtimeVersion: "27.0", profile: .extreme, currentDisabledLabels: []
+    )
+    #expect(plan.changes.count == 167)
+    #expect(Set(plan.changes.map(\.label)).isDisjoint(with: excluded))
+    for version in ["27.1", "27.2.1", "28.0", "30.0"] {
+      #expect(catalog.applicableServices(runtimeVersion: version).count == 168)
+      #expect(
+        SimulatorRuntime(
+          id: "com.apple.CoreSimulator.SimRuntime.iOS-27-1",
+          name: "未知版本", version: version, isAvailable: true
+        ).optimizationSupport == .supported)
+    }
+  }
+
+  @Test("无效版本号不开放操作")
+  func malformedRuntimeVersionsRemainUnsupported() throws {
+    let catalog = try ServiceCatalog.bundled()
+    for version in ["", "27.beta", "27.", ".27", "27..1", "+27", "unknown"] {
+      #expect(!SimulatorOptimizationPolicy.supports(version))
+      #expect(catalog.applicableServices(runtimeVersion: version).isEmpty)
+    }
+  }
+
+  @Test("iOS 27 之前仍使用已有版本范围")
   func onlyExplicitlyVerifiedRuntimeVersionsAreMutable() {
     let catalog = makeBehaviorCatalog()
 
