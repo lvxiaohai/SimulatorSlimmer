@@ -265,6 +265,7 @@
     "menu-bar.open-application-directory" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"打开 %@ 的数据目录"}},"en":{"stringUnit":{"state":"translated","value":"Open %@ Data Directory"}}}},
     "menu-bar.open-application-directory.hint" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"点击应用打开数据目录"}},"en":{"stringUnit":{"state":"translated","value":"Click an App to Open Its Data Directory"}}}},
     "menu-bar.partial-application-data" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"部分应用信息不可用"}},"en":{"stringUnit":{"state":"translated","value":"Some App Information Is Unavailable"}}}},
+    "command.quit" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"退出 Simulator Slimmer"}},"en":{"stringUnit":{"state":"translated","value":"Quit Simulator Slimmer"}}}},
     "menu-bar.quit" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"退出"}},"en":{"stringUnit":{"state":"translated","value":"Quit"}}}},
     "menu-bar.reload" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"重新读取"}},"en":{"stringUnit":{"state":"translated","value":"Reload"}}}},
     "menu-bar.reload-applications" : {"localizations":{"zh-Hans":{"stringUnit":{"state":"translated","value":"重新读取应用"}},"en":{"stringUnit":{"state":"translated","value":"Reload Apps"}}}},

@@ -10,7 +10,21 @@ private let stopMenuHelperNotification = Notification.Name(
 @MainActor
 final class SimulatorSlimmerAppDelegate: NSObject, NSApplicationDelegate {
   func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-    true
+    guard UserDefaults.standard.object(forKey: "menuBarEnabled") as? Bool ?? true else {
+      return true
+    }
+    // macOS 27 会为退出后仍有 Helper 的应用保留 Dock 图标，因此主进程转为菜单栏驻留。
+    sender.setActivationPolicy(.accessory)
+    return false
+  }
+
+  func applicationShouldHandleReopen(
+    _ sender: NSApplication,
+    hasVisibleWindows flag: Bool
+  ) -> Bool {
+    sender.setActivationPolicy(.regular)
+    sender.activate()
+    return true
   }
 }
 

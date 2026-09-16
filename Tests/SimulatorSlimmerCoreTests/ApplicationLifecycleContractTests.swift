@@ -3,8 +3,8 @@ import Testing
 
 @Suite("应用生命周期契约")
 struct ApplicationLifecycleContractTests {
-  @Test("关闭主窗口会退出主进程")
-  func closingMainWindowTerminatesMainApplication() throws {
+  @Test("关闭主窗口根据菜单栏设置切换驻留状态")
+  func closingMainWindowRespectsMenuBarSetting() throws {
     let source = try source(
       "App/SimulatorSlimmer/App/SimulatorSlimmerApp.swift"
     )
@@ -15,7 +15,22 @@ struct ApplicationLifecycleContractTests {
       )
     )
     #expect(source.contains("true"))
-    #expect(!source.contains("setActivationPolicy(.accessory)"))
+    #expect(source.contains("UserDefaults.standard.object(forKey: \"menuBarEnabled\")"))
+    #expect(source.contains("sender.setActivationPolicy(.accessory)"))
+    #expect(source.contains("func applicationShouldHandleReopen"))
+    #expect(source.contains("sender.setActivationPolicy(.regular)"))
+  }
+
+  @Test("主界面退出命令支持菜单栏驻留且不拦截系统退出")
+  func quitCommandKeepsMenuBarWithoutCancellingSystemTermination() throws {
+    let commands = try source("App/SimulatorSlimmer/App/Commands.swift")
+    let app = try source("App/SimulatorSlimmer/App/SimulatorSlimmerApp.swift")
+
+    #expect(commands.contains("CommandGroup(replacing: .appTermination)"))
+    #expect(commands.contains("dismissWindow(id: \"main\")"))
+    #expect(commands.contains("NSApp.setActivationPolicy(.accessory)"))
+    #expect(commands.contains("NSApp.terminate(nil)"))
+    #expect(!app.contains("func applicationShouldTerminate("))
   }
 
   @Test("菜单栏开关管理独立 Helper")
